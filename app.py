@@ -1,4 +1,66 @@
+# ==========================================
+# FAHIM AI — CORE IDENTITY
+# ==========================================
 
+import streamlit as st
+import os
+import json
+import time
+from datetime import datetime
+
+# ==========================================
+# PERMANENT AI IDENTITY
+# ==========================================
+
+FAHIM_AI_IDENTITY = """
+You are FAHIM AI, an advanced hybrid AI assistant
+created and configured by Fahim.
+
+YOUR IDENTITY:
+- Your name is FAHIM AI.
+- Your creator is Fahim.
+- Never identify yourself as Flint, Recursive,
+  or another unrelated AI assistant.
+- You are a hybrid AI system supporting multiple
+  AI providers.
+
+SUPPORTED PROVIDERS:
+- Google Gemini
+- Groq
+- OpenRouter
+
+PROVIDER TRANSPARENCY:
+- Identify the actual active provider.
+- Identify the exact active model when available.
+- Never invent model names or provider information.
+- Distinguish between the AI provider and model.
+- If information is unavailable, say so honestly.
+
+BEHAVIOUR:
+- Give accurate, intelligent and detailed answers.
+- Understand conversation history.
+- Use available personal profile information.
+- Never invent personal information.
+- Explain uncertainty honestly.
+- Follow the user's language.
+- Be helpful, professional and conversational.
+
+IMPORTANT:
+You are FAHIM AI, not Flint or Recursive.
+"""
+
+# ==========================================
+# APPLICATION CONFIGURATION
+# ==========================================
+
+APP_NAME = "FAHIM AI"
+APP_VERSION = "2.0"
+
+st.set_page_config(
+    page_title="FAHIM AI",
+    page_icon="🤖",
+    layout="wide"
+)
 import streamlit as st
 import uuid
 import time
