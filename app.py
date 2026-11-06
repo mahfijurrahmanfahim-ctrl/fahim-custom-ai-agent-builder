@@ -1,63 +1,77 @@
+
 import streamlit as st
 import uuid
 import time
-import threading
-import queue
+
 from google import genai
 from google.genai import types
 from supabase import create_client
+from openai import OpenAI
 
-# ==========================================
-# FAHIM AI - ADVANCED STREAMING ENGINE
-# ==========================================
+# ==================================================
+# FAHIM AI - HYBRID MULTI-PROVIDER EDITION
+# ==================================================
 
 st.set_page_config(
-    page_title="Fahim AI",
+    page_title="FAHIM AI",
     page_icon="🤖",
     layout="wide"
 )
 
-# ==========================================
+# ==================================================
 # DESIGN
-# ==========================================
+# ==================================================
 
 st.markdown("""
 <style>
 .stApp {
     background: #0b0b0f;
-    color: white;
+    color: #ffffff;
 }
+
 [data-testid="stChatMessage"] {
     border: 1px solid #292936;
     border-radius: 14px;
-    padding: 12px;
+    padding: 14px;
+    margin-bottom: 10px;
 }
+
 .stChatInput {
     border-radius: 15px;
 }
+
 [data-testid="stStatusWidget"] {
     border: 1px solid #343444;
     border-radius: 12px;
 }
+
+[data-testid="stSidebar"] {
+    background: #101018;
+}
+
+.stButton button {
+    border-radius: 10px;
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
+# ==================================================
 # CONFIGURATION
-# ==========================================
+# ==================================================
 
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
     SUPABASE_URL = st.secrets["SUPABASE_URL"]
     SUPABASE_KEY = st.secrets["SUPABASE_SECRET_KEY"]
 
-    if not all([GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY]):
-        st.error("One or more credentials are empty.")
-        st.stop()
-
 except KeyError as error:
-    st.error(f"Missing Streamlit Secret: {error}")
+    st.error(f"Missing required Streamlit Secret: {error}")
     st.stop()
+
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+OPENROUTER_API_KEY = st.secrets.get(
+    "OPENROUTER_API_KEY", ""
+)
 
 PRIMARY_MODEL = st.secrets.get(
     "PRIMARY_MODEL",
@@ -71,30 +85,35 @@ backup_config = st.secrets.get(
 
 if isinstance(backup_config, str):
     BACKUP_MODELS = [
-        item.strip()
-        for item in backup_config.split(",")
-        if item.strip()
+        model.strip()
+        for model in backup_config.split(",")
+        if model.strip()
     ]
 else:
     BACKUP_MODELS = list(backup_config)
 
-MODELS = list(dict.fromkeys(
-    [PRIMARY_MODEL] + BACKUP_MODELS
-))
+GROQ_MODEL = st.secrets.get(
+    "GROQ_MODEL",
+    "llama-3.3-70b-versatile"
+)
+
+OPENROUTER_MODEL = st.secrets.get(
+    "OPENROUTER_MODEL",
+    "openrouter/free"
+)
 
 MAX_CONTEXT_MESSAGES = 12
-STREAM_TIMEOUT = 180
+REQUEST_TIMEOUT = 90
 
 SYSTEM_INSTRUCTION = """
-You are Fahim AI, an advanced AI assistant.
+You are FAHIM AI, an advanced professional AI assistant.
 
 IDENTITY:
-You are Fahim AI, a powerful, intelligent,
-professional and helpful AI assistant.
+Your name is FAHIM AI.
 
 CORE RESPONSIBILITIES:
 
-1. Give accurate and useful answers.
+1. Give accurate, useful and clear answers.
 2. Understand Bengali and English.
 3. Follow the language requested by the user.
 4. Answer directly inside the chat.
@@ -104,7 +123,7 @@ CORE RESPONSIBILITIES:
    graphic design, writing and education.
 8. When code is requested, provide complete,
    working and properly formatted code.
-9. Use available conversation history.
+9. Use the available conversation history.
 10. Avoid unnecessary introductions and repetition.
 11. Explain technical instructions step by step.
 12. Never claim to perform actions you did not perform.
@@ -114,13 +133,17 @@ CORE RESPONSIBILITIES:
     a search tool is actually available.
 
 PERSONAL PROFILE:
-Use the user's available profile information
-when relevant.
+Use the user's available profile when relevant.
+
+RESPONSE STYLE:
+Be intelligent, professional, helpful and clear.
+Provide detailed answers when requested.
+Use appropriate formatting and examples.
 """
 
-# ==========================================
-# CLIENTS
-# ==========================================
+# ==================================================
+# CLIENT CONNECTIONS
+# ==================================================
 
 @st.cache_resource(show_spinner=False)
 def get_gemini_client(api_key):
@@ -133,19 +156,22 @@ def get_supabase_client(url, key):
 
 
 try:
-    client = get_gemini_client(GEMINI_API_KEY)
+    gemini_client = get_gemini_client(GEMINI_API_KEY)
+
     supabase = get_supabase_client(
         SUPABASE_URL,
         SUPABASE_KEY
     )
+
 except Exception as error:
-    st.error("AI or database connection failed.")
+    st.error("Connection initialization failed.")
     st.exception(error)
     st.stop()
 
-# ==========================================
-# SESSION
-# ==========================================
+
+# ==================================================
+# SESSION MANAGEMENT
+# ==================================================
 
 def get_session_id():
 
@@ -165,9 +191,10 @@ def get_session_id():
 
 SESSION_ID = get_session_id()
 
-# ==========================================
-# DATABASE
-# ==========================================
+
+# ==================================================
+# DATABASE - PERMANENT MEMORY
+# ==================================================
 
 def load_chat_history():
 
@@ -186,6 +213,7 @@ def load_chat_history():
 def save_message(role, content):
 
     try:
+
         supabase.table("chat_history").insert({
             "session_id": SESSION_ID,
             "role": role,
@@ -195,27 +223,35 @@ def save_message(role, content):
         return True
 
     except Exception as error:
-        st.error(f"Database save failed: {error}")
+
+        st.error("Message could not be saved.")
+        st.code(str(error))
+
         return False
 
 
 def delete_chat_history():
 
     try:
+
         supabase.table("chat_history").delete().eq(
-            "session_id", SESSION_ID
+            "session_id",
+            SESSION_ID
         ).execute()
 
         return True
 
     except Exception as error:
-        st.error(f"Delete failed: {error}")
+
+        st.error("Could not delete conversation.")
+        st.code(str(error))
+
         return False
 
 
-# ==========================================
-# LOAD MEMORY
-# ==========================================
+# ==================================================
+# LOAD SAVED MEMORY
+# ==================================================
 
 if "messages" not in st.session_state:
 
@@ -223,6 +259,7 @@ if "messages" not in st.session_state:
         st.session_state.messages = load_chat_history()
 
     except Exception as error:
+
         st.error("Could not restore permanent chat history.")
         st.exception(error)
         st.stop()
@@ -234,25 +271,43 @@ if "last_model" not in st.session_state:
 if "request_count" not in st.session_state:
     st.session_state.request_count = 0
 
-# ==========================================
-# ERROR DETECTION
-# ==========================================
+if "last_error" not in st.session_state:
+    st.session_state.last_error = None
+
+
+# ==================================================
+# ERROR CLASSIFICATION
+# ==================================================
+
+def is_quota_error(error):
+
+    message = str(error).upper()
+
+    return any(term in message for term in [
+        "429",
+        "RESOURCE_EXHAUSTED",
+        "QUOTA_EXCEEDED",
+        "RATE_LIMIT"
+    ])
+
 
 def is_auth_error(error):
 
     message = str(error).upper()
 
-    return any(code in message for code in [
-        "API_KEY_INVALID",
+    return any(term in message for term in [
         "401",
+        "403",
+        "UNAUTHENTICATED",
+        "PERMISSION_DENIED",
         "INVALID API KEY",
-        "UNAUTHENTICATED"
+        "API_KEY_INVALID"
     ])
 
 
-# ==========================================
-# CHAT HISTORY
-# ==========================================
+# ==================================================
+# PREPARE CONVERSATION
+# ==================================================
 
 def prepare_history(messages):
 
@@ -283,231 +338,361 @@ def prepare_history(messages):
     return contents
 
 
-# ==========================================
-# STREAM WORKER
-# ==========================================
+def prepare_openai_history(contents):
 
-def stream_worker(model_name, contents, event_queue):
+    messages = [{
+        "role": "system",
+        "content": SYSTEM_INSTRUCTION
+    }]
 
-    try:
+    for item in contents:
 
-        config = types.GenerateContentConfig(
-            system_instruction=SYSTEM_INSTRUCTION
+        role = (
+            "user"
+            if item.role == "user"
+            else "assistant"
         )
 
-        stream = client.models.generate_content_stream(
-            model=model_name,
-            contents=contents,
-            config=config
+        text_content = "\n".join(
+            part.text
+            for part in item.parts
+            if getattr(part, "text", None)
         )
 
-        for chunk in stream:
+        if text_content:
 
-            try:
-                text = chunk.text
-            except Exception:
-                text = None
+            messages.append({
+                "role": role,
+                "content": text_content
+            })
 
-            if text:
-                event_queue.put(("chunk", text))
-
-        event_queue.put(("complete", None))
-
-    except Exception as error:
-        event_queue.put(("error", str(error)))
+    return messages
 
 
-# ==========================================
-# ADVANCED STREAMING + FALLBACK
-# ==========================================
+# ==================================================
+# PROVIDER CONFIGURATION
+# ==================================================
 
-def generate_answer(contents, answer_placeholder, status):
+def get_providers():
+
+    providers = [
+        {
+            "name": "Gemini Primary",
+            "type": "gemini",
+            "model": PRIMARY_MODEL
+        }
+    ]
+
+    for model in BACKUP_MODELS:
+
+        if model != PRIMARY_MODEL:
+
+            providers.append({
+                "name": "Gemini Backup",
+                "type": "gemini",
+                "model": model
+            })
+
+    if GROQ_API_KEY:
+
+        providers.append({
+            "name": "Groq",
+            "type": "openai",
+            "model": GROQ_MODEL,
+            "key": GROQ_API_KEY,
+            "url": "https://api.groq.com/openai/v1"
+        })
+
+    if OPENROUTER_API_KEY:
+
+        providers.append({
+            "name": "OpenRouter",
+            "type": "openai",
+            "model": OPENROUTER_MODEL,
+            "key": OPENROUTER_API_KEY,
+            "url": "https://openrouter.ai/api/v1"
+        })
+
+    return providers
+
+
+# ==================================================
+# GEMINI STREAMING
+# ==================================================
+
+def stream_gemini(model, contents, placeholder):
+
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_INSTRUCTION
+    )
+
+    stream = gemini_client.models.generate_content_stream(
+        model=model,
+        contents=contents,
+        config=config
+    )
+
+    parts = []
+    started = time.monotonic()
+    last_status = started
+
+    for chunk in stream:
+
+        if time.monotonic() - started > REQUEST_TIMEOUT:
+            raise TimeoutError("Gemini response timed out.")
+
+        try:
+            text = chunk.text
+        except Exception:
+            text = None
+
+        if text:
+
+            parts.append(text)
+
+            placeholder.markdown(
+                "".join(parts) + " ▌"
+            )
+
+        if time.monotonic() - last_status >= 3:
+            last_status = time.monotonic()
+
+    answer = "".join(parts)
+
+    if not answer.strip():
+        raise RuntimeError("Gemini returned an empty response.")
+
+    return answer
+
+
+# ==================================================
+# GROQ / OPENROUTER STREAMING
+# ==================================================
+
+def stream_openai_compatible(provider, contents, placeholder):
+
+    ai_client = OpenAI(
+        api_key=provider["key"],
+        base_url=provider["url"],
+        timeout=REQUEST_TIMEOUT,
+        max_retries=0
+    )
+
+    messages = prepare_openai_history(contents)
+
+    stream = ai_client.chat.completions.create(
+        model=provider["model"],
+        messages=messages,
+        stream=True,
+        temperature=0.7
+    )
+
+    parts = []
+    started = time.monotonic()
+
+    for chunk in stream:
+
+        if time.monotonic() - started > REQUEST_TIMEOUT:
+            raise TimeoutError(
+                f"{provider['name']} response timed out."
+            )
+
+        if not chunk.choices:
+            continue
+
+        text = chunk.choices[0].delta.content
+
+        if text:
+
+            parts.append(text)
+
+            placeholder.markdown(
+                "".join(parts) + " ▌"
+            )
+
+    answer = "".join(parts)
+
+    if not answer.strip():
+        raise RuntimeError(
+            f"{provider['name']} returned an empty response."
+        )
+
+    return answer
+
+
+# ==================================================
+# HYBRID AI ROUTER
+# ==================================================
+
+def generate_answer(contents, placeholder, status):
+
+    providers = get_providers()
 
     errors = []
+    skip_remaining_gemini = False
 
-    for index, model_name in enumerate(MODELS):
+    for index, provider in enumerate(providers):
 
-        is_backup = index > 0
+        name = provider["name"]
+        model = provider["model"]
+        provider_type = provider["type"]
+
+        if provider_type == "gemini" and skip_remaining_gemini:
+            continue
 
         status.update(
-            label=(
-                f"Switching to backup model: {model_name}"
-                if is_backup
-                else f"Connecting to primary model: {model_name}"
-            ),
+            label=f"Connecting to {name}...",
             state="running",
             expanded=True
         )
 
-        event_queue = queue.Queue()
+        status.write(f"Model: {model}")
+        status.write("Waiting for response...")
 
-        worker = threading.Thread(
-            target=stream_worker,
-            args=(model_name, contents, event_queue),
-            daemon=True
-        )
+        placeholder.empty()
 
-        worker.start()
+        try:
 
-        answer_parts = []
-        started = time.monotonic()
-        last_update = started
-        completed = False
-        failed = False
-        error_message = None
+            if provider_type == "gemini":
 
-        status.write(f"Model: {model_name}")
-        status.write("Waiting for AI response...")
-
-        while True:
-
-            now = time.monotonic()
-
-            if now - started > STREAM_TIMEOUT:
-                error_message = (
-                    f"Response timed out after {STREAM_TIMEOUT} seconds."
-                )
-                failed = True
-                break
-
-            try:
-                event, value = event_queue.get(timeout=0.5)
-
-            except queue.Empty:
-
-                elapsed = int(time.monotonic() - started)
-
-                if now - last_update >= 2:
-
-                    if answer_parts:
-                        status.write(
-                            f"Generating response... {elapsed}s elapsed"
-                        )
-                    else:
-                        status.write(
-                            f"Waiting for first response... {elapsed}s elapsed"
-                        )
-
-                    last_update = now
-
-                continue
-
-            if event == "chunk":
-
-                answer_parts.append(value)
-
-                answer_placeholder.markdown(
-                    "".join(answer_parts) + " ▌"
+                answer = stream_gemini(
+                    model,
+                    contents,
+                    placeholder
                 )
 
-            elif event == "complete":
+            else:
 
-                completed = True
-                break
+                answer = stream_openai_compatible(
+                    provider,
+                    contents,
+                    placeholder
+                )
 
-            elif event == "error":
+            placeholder.markdown(answer)
 
-                failed = True
-                error_message = value
-                break
+            used_model = f"{name} | {model}"
 
-        answer = "".join(answer_parts)
-
-        if completed and answer.strip():
-
-            answer_placeholder.markdown(answer)
-
-            st.session_state.last_model = model_name
+            st.session_state.last_model = used_model
+            st.session_state.last_error = None
 
             status.update(
-                label=f"Response completed using {model_name}",
+                label=f"Completed successfully: {name}",
                 state="complete",
                 expanded=False
             )
 
-            return answer, model_name, None
+            return answer, used_model
 
-        # Never treat an interrupted response as complete.
-        answer_placeholder.empty()
+        except Exception as error:
 
-        if failed:
+            error_text = str(error)
+
             errors.append(
-                f"{model_name}: {error_message}"
+                f"{name} ({model}): {error_text}"
             )
 
-        elif not answer.strip():
-            errors.append(
-                f"{model_name}: Empty response returned."
+            placeholder.empty()
+
+            if (
+                provider_type == "gemini"
+                and is_quota_error(error)
+            ):
+                skip_remaining_gemini = True
+
+            status.write(
+                f"{name} failed. Checking next provider..."
             )
 
-        if error_message and is_auth_error(error_message):
-            break
+            if is_auth_error(error):
+                status.write(
+                    "Authentication error detected."
+                )
 
-        if index < len(MODELS) - 1:
-
-            status.update(
-                label=f"{model_name} failed. Trying backup...",
-                state="running",
-                expanded=True
-            )
+            continue
 
     status.update(
-        label="All available AI models failed.",
+        label="All AI providers failed.",
         state="error",
         expanded=True
     )
 
     raise RuntimeError(
-        "\n\n".join(errors) or "No model returned a valid response."
+        "No AI provider could generate a response:\n\n"
+        + "\n\n".join(errors)
     )
 
 
-# ==========================================
+# ==================================================
 # HEADER
-# ==========================================
+# ==================================================
 
 st.title("🤖 FAHIM AI")
 
 st.caption(
-    "Advanced AI Assistant | Permanent Memory | Gemini Streaming"
+    "Hybrid AI Assistant | Gemini + Groq + OpenRouter | "
+    "Permanent Memory"
 )
 
 st.divider()
 
-# ==========================================
+
+# ==================================================
 # SIDEBAR
-# ==========================================
+# ==================================================
 
 with st.sidebar:
 
     st.title("⚙️ Settings")
 
-    st.success("Gemini API connected")
-    st.success("Supabase database connected")
-    st.success("Permanent memory enabled")
+    st.success("Gemini connection configured")
+
+    if GROQ_API_KEY:
+        st.success("Groq configured")
+    else:
+        st.warning("Groq API key missing")
+
+    if OPENROUTER_API_KEY:
+        st.success("OpenRouter configured")
+    else:
+        st.warning("OpenRouter API key missing")
+
+    st.success("Supabase configured")
 
     st.divider()
 
-    st.write("**Primary model**")
+    st.write("**Primary Gemini model**")
     st.code(PRIMARY_MODEL)
 
-    st.write("**Backup models**")
+    st.write("**Gemini backups**")
 
     for model in BACKUP_MODELS:
         st.caption(f"• {model}")
 
     st.divider()
 
-    st.write(
-        f"**Total messages:** {len(st.session_state.messages)}"
+    st.write("**Other AI providers**")
+
+    if GROQ_API_KEY:
+        st.caption(f"• Groq: {GROQ_MODEL}")
+
+    if OPENROUTER_API_KEY:
+        st.caption(f"• OpenRouter: {OPENROUTER_MODEL}")
+
+    st.divider()
+
+    st.metric(
+        "Total messages",
+        len(st.session_state.messages)
     )
 
-    st.write(
-        f"**Current model:** {st.session_state.last_model}"
-    )
+    st.caption("Last successful model")
 
-    st.write(
-        f"**Requests:** {st.session_state.request_count}"
+    st.code(st.session_state.last_model)
+
+    st.metric(
+        "Total requests",
+        st.session_state.request_count
     )
 
     st.divider()
@@ -520,23 +705,27 @@ with st.sidebar:
         if delete_chat_history():
 
             st.session_state.messages = []
+            st.session_state.last_error = None
+
             st.success("Conversation deleted.")
             st.rerun()
 
     st.divider()
 
     st.markdown("""
-    ### Features
+    ### FAHIM AI Features
 
+    - Multi-provider AI engine
+    - Gemini primary and backups
+    - Groq fallback
+    - OpenRouter fallback
+    - Live text streaming
+    - Automatic provider switching
     - Permanent chat history
-    - Automatic database saving
-    - Restore conversations
+    - Supabase database
     - Bengali and English
-    - Live response streaming
-    - Live processing status
-    - Automatic model fallback
     - Programming assistance
-    - Business support
+    - Business assistance
     - Creative design assistance
     """)
 
@@ -545,33 +734,38 @@ with st.sidebar:
     st.caption("FAHIM GRAPHIC DESIGN")
     st.caption("Creative Design. Professional Results.")
 
-# ==========================================
+
+# ==================================================
 # DISPLAY CHAT HISTORY
-# ==========================================
+# ==================================================
 
 for message in st.session_state.messages:
 
-    with st.chat_message(message["role"]):
+    role = message["role"]
+
+    if role not in ["user", "assistant"]:
+        continue
+
+    with st.chat_message(role):
         st.markdown(message["content"])
 
-# ==========================================
+
+# ==================================================
 # CHAT INPUT
-# ==========================================
+# ==================================================
 
 user_prompt = st.chat_input(
     "Ask Fahim AI anything..."
 )
 
-# ==========================================
-# GENERATE RESPONSE
-# ==========================================
+
+# ==================================================
+# PROCESS USER MESSAGE
+# ==================================================
 
 if user_prompt:
 
     st.session_state.request_count += 1
-
-    # Save user message
-    user_saved = save_message("user", user_prompt)
 
     st.session_state.messages.append({
         "role": "user",
@@ -581,10 +775,16 @@ if user_prompt:
     with st.chat_message("user"):
         st.markdown(user_prompt)
 
+    user_saved = save_message(
+        "user",
+        user_prompt
+    )
+
     if not user_saved:
+
         st.warning(
-            "Your message is currently in this session, "
-            "but permanent database saving failed."
+            "Message is visible in this session, "
+            "but permanent saving failed."
         )
 
     api_history = prepare_history(
@@ -593,7 +793,7 @@ if user_prompt:
 
     with st.chat_message("assistant"):
 
-        output_placeholder = st.empty()
+        placeholder = st.empty()
 
         try:
 
@@ -602,59 +802,65 @@ if user_prompt:
                 expanded=True
             ) as status:
 
-                answer, used_model, stream_error = generate_answer(
+                answer, used_model = generate_answer(
                     api_history,
-                    output_placeholder,
+                    placeholder,
                     status
                 )
-
-            # Save only completed response.
-            assistant_saved = save_message(
-                "assistant",
-                answer
-            )
 
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": answer
             })
 
-            st.caption(f"⚡ Model: {used_model}")
+            assistant_saved = save_message(
+                "assistant",
+                answer
+            )
 
-            if used_model != PRIMARY_MODEL:
-                st.info(
-                    f"Backup model successfully used: {used_model}"
-                )
+            st.caption(f"⚡ Provider: {used_model}")
 
             if assistant_saved:
+
                 st.caption(
                     "☁️ Permanently saved to Supabase"
                 )
+
             else:
+
                 st.warning(
-                    "Response generated, but database saving failed."
+                    "Answer generated, but permanent saving failed."
                 )
 
         except Exception as error:
 
+            st.session_state.last_error = str(error)
+
+            placeholder.empty()
+
             st.error(
-                "FAHIM AI could not complete your response."
+                "FAHIM AI could not complete the response."
             )
 
-            with st.expander("Technical error details", expanded=True):
+            with st.expander(
+                "Technical error details",
+                expanded=True
+            ):
+
                 st.code(str(error))
 
             st.info(
-                "Please check your Gemini API key, model names, "
-                "API quota and network connection."
+                "Check API keys, model availability, "
+                "provider quota and internet connection."
             )
 
-# ==========================================
+
+# ==================================================
 # FOOTER
-# ==========================================
+# ==================================================
 
 st.divider()
 
 st.caption(
-    "© FAHIM AI | Powered by Google Gemini and Supabase"
+    "© 2026 FAHIM AI | Gemini + Groq + OpenRouter + Supabase"
 )
