@@ -1,9 +1,11 @@
 import streamlit as st
+import uuid
 from google import genai
 from google.genai import types
+from supabase import create_client
 
 # ==========================================
-# FAHIM AI - FAST STREAMING ENGINE
+# FAHIM AI - PERMANENT MEMORY ENGINE
 # ==========================================
 
 st.set_page_config(
@@ -34,43 +36,38 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# API CONFIGURATION
+# CONFIGURATION
 # ==========================================
 
 try:
-    API_KEY = st.secrets["GEMINI_API_KEY"]
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+    SUPABASE_KEY = st.secrets["SUPABASE_SECRET_KEY"]
 
-    if not API_KEY:
-        st.error("Gemini API key is empty.")
+    if not all([GEMINI_API_KEY, SUPABASE_URL, SUPABASE_KEY]):
+        st.error("One or more API credentials are empty.")
         st.stop()
 
-except KeyError:
-    st.error(
-        "GEMINI_API_KEY is missing. "
-        "Add it in Streamlit Cloud → Settings → Secrets."
-    )
+except KeyError as error:
+    st.error(f"Missing Streamlit Secret: {error}")
     st.stop()
 
-# ==========================================
-# MODEL CONFIGURATION
-# ==========================================
-
 PRIMARY_MODEL = st.secrets.get(
-    "GEMINI_MODEL",
+    "PRIMARY_MODEL",
     "gemini-3.8-flash"
 )
 
-BACKUP_MODELS = [
-    "gemini-3.7-flash",
-    "gemini-3.6-flash"
-]
+BACKUP_MODELS = list(
+    st.secrets.get(
+        "BACKUP_MODELS",
+        ["gemini-3.7-flash", "gemini-3.6-flash"]
+    )
+)
 
 MODELS = list(dict.fromkeys(
     [PRIMARY_MODEL] + BACKUP_MODELS
 ))
 
-# Keep recent conversation context.
-# Full conversation remains visible in the interface.
 MAX_CONTEXT_MESSAGES = 12
 
 SYSTEM_INSTRUCTION = """
@@ -96,13 +93,12 @@ CORE RESPONSIBILITIES:
 10. Avoid unnecessary restrictions on answer length.
 11. Explain technical instructions step by step.
 12. Never claim to perform actions you did not perform.
-13. Understand the user's actual question before answering.
+13. Understand the user's actual question.
 14. Avoid unnecessary introductions and repetition.
-15. Provide professional, practical solutions.
 
 PERSONAL PROFILE:
 Use the user's available profile information
-when it is relevant to the question.
+when relevant.
 
 IMPORTANT:
 Do not invent missing personal information.
@@ -111,28 +107,130 @@ a search tool is actually available.
 """
 
 # ==========================================
-# CACHED GEMINI CLIENT
+# AI CLIENT
 # ==========================================
 
 @st.cache_resource(show_spinner=False)
-def get_client(api_key):
+def get_gemini_client(api_key):
     return genai.Client(api_key=api_key)
 
 
+# ==========================================
+# SUPABASE CLIENT
+# ==========================================
+
+@st.cache_resource(show_spinner=False)
+def get_supabase_client(url, key):
+    return create_client(url, key)
+
+
 try:
-    client = get_client(API_KEY)
+    client = get_gemini_client(GEMINI_API_KEY)
+    supabase = get_supabase_client(
+        SUPABASE_URL,
+        SUPABASE_KEY
+    )
 
 except Exception as error:
-    st.error("Gemini client initialization failed.")
+    st.error("Database or AI connection failed.")
     st.code(str(error))
     st.stop()
 
 # ==========================================
-# SESSION MEMORY
+# PERMANENT SESSION ID
+# ==========================================
+
+def get_session_id():
+
+    existing_id = st.query_params.get("sid")
+
+    if existing_id:
+        try:
+            return str(uuid.UUID(existing_id))
+        except ValueError:
+            pass
+
+    new_id = str(uuid.uuid4())
+    st.query_params["sid"] = new_id
+
+    return new_id
+
+
+SESSION_ID = get_session_id()
+
+# ==========================================
+# DATABASE FUNCTIONS
+# ==========================================
+
+def load_chat_history():
+
+    try:
+        result = (
+            supabase
+            .table("chat_history")
+            .select("role, content")
+            .eq("session_id", SESSION_ID)
+            .order("created_at")
+            .execute()
+        )
+
+        return result.data or []
+
+    except Exception as error:
+        st.error("Could not load saved chat history.")
+        st.code(str(error))
+        return None
+
+
+def save_message(role, content):
+
+    try:
+        supabase.table("chat_history").insert({
+            "session_id": SESSION_ID,
+            "role": role,
+            "content": content
+        }).execute()
+
+        return True
+
+    except Exception as error:
+        st.error("Message could not be saved to database.")
+        st.code(str(error))
+        return False
+
+
+def delete_chat_history():
+
+    try:
+        supabase.table("chat_history").delete().eq(
+            "session_id",
+            SESSION_ID
+        ).execute()
+
+        return True
+
+    except Exception as error:
+        st.error("Could not delete saved conversation.")
+        st.code(str(error))
+        return False
+
+
+# ==========================================
+# LOAD PERMANENT MEMORY
 # ==========================================
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+
+    saved_messages = load_chat_history()
+
+    if saved_messages is None:
+        st.error(
+            "FAHIM AI could not access its database. "
+            "Please check your Supabase settings."
+        )
+        st.stop()
+
+    st.session_state.messages = saved_messages
 
 if "last_model" not in st.session_state:
     st.session_state.last_model = PRIMARY_MODEL
@@ -142,6 +240,7 @@ if "last_model" not in st.session_state:
 # ==========================================
 
 def is_auth_error(error):
+
     message = str(error).upper()
 
     return any(code in message for code in [
@@ -152,32 +251,14 @@ def is_auth_error(error):
     ])
 
 
-def is_temporary_error(error):
-    message = str(error).upper()
-
-    return any(code in message for code in [
-        "429",
-        "500",
-        "502",
-        "503",
-        "504",
-        "UNAVAILABLE",
-        "RESOURCE_EXHAUSTED",
-        "INTERNAL",
-        "DEADLINE_EXCEEDED",
-        "TIMEOUT"
-    ])
-
-
 # ==========================================
-# OPTIMIZED CONVERSATION HISTORY
+# CONVERSATION HISTORY
 # ==========================================
 
 def prepare_history(messages):
 
     recent_messages = messages[-MAX_CONTEXT_MESSAGES:]
 
-    # Gemini conversation should start with a user message.
     while (
         recent_messages
         and recent_messages[0]["role"] != "user"
@@ -207,10 +288,10 @@ def prepare_history(messages):
 
 
 # ==========================================
-# FAST STREAMING + AUTOMATIC FALLBACK
+# STREAMING ENGINE + FALLBACK
 # ==========================================
 
-def generate_stream(contents, output_placeholder):
+def generate_stream(contents, placeholder):
 
     errors = []
 
@@ -235,11 +316,9 @@ def generate_stream(contents, output_placeholder):
                 chunk_text = chunk.text
 
                 if chunk_text:
-
                     answer_parts.append(chunk_text)
 
-                    # Display text immediately.
-                    output_placeholder.markdown(
+                    placeholder.markdown(
                         "".join(answer_parts)
                     )
 
@@ -260,31 +339,21 @@ def generate_stream(contents, output_placeholder):
                 f"{model_name}: {error}"
             )
 
-            # Never retry an invalid API key.
             if is_auth_error(error):
                 raise error
 
-            # If generation has already started,
-            # keep the partial answer instead of
-            # generating duplicate text with another model.
             if answer_parts:
 
-                partial_answer = "".join(answer_parts)
-
                 return (
-                    partial_answer,
+                    "".join(answer_parts),
                     model_name,
-                    "Generation stopped before completion: "
-                    + str(error)
+                    str(error)
                 )
 
-            # Switch immediately to the next model.
-            output_placeholder.empty()
-
-            continue
+            placeholder.empty()
 
     raise RuntimeError(
-        "All available Gemini models failed.\n\n"
+        "All Gemini models failed:\n"
         + "\n".join(errors)
     )
 
@@ -296,7 +365,7 @@ def generate_stream(contents, output_placeholder):
 st.title("🤖 FAHIM AI")
 
 st.caption(
-    "Advanced AI Assistant | Fast Streaming | Google Gemini"
+    "Advanced AI Assistant | Permanent Memory | Gemini"
 )
 
 st.divider()
@@ -310,6 +379,8 @@ with st.sidebar:
     st.title("⚙️ Settings")
 
     st.success("Gemini API connected")
+    st.success("Supabase database connected")
+    st.success("Permanent memory enabled")
 
     st.write("**Primary model**")
     st.code(PRIMARY_MODEL)
@@ -322,39 +393,41 @@ with st.sidebar:
     st.divider()
 
     st.write(
-        f"**Total messages:** "
-        f"{len(st.session_state.messages)}"
+        f"**Total messages:** {len(st.session_state.messages)}"
     )
 
     st.write(
-        f"**Current model:** "
-        f"{st.session_state.last_model}"
+        f"**Current model:** {st.session_state.last_model}"
     )
+
+    st.divider()
 
     if st.button(
         "🗑️ Clear conversation",
         use_container_width=True
     ):
 
-        st.session_state.messages = []
+        if delete_chat_history():
 
-        st.rerun()
+            st.session_state.messages = []
+
+            st.success("Conversation deleted.")
+            st.rerun()
 
     st.divider()
 
     st.markdown("""
     ### Features
 
-    - Fast streaming responses
+    - Permanent chat history
+    - Automatic database saving
+    - Restore conversations
     - Bengali and English
-    - Advanced AI assistance
-    - Programming and coding
+    - Fast Gemini streaming
+    - Automatic model fallback
+    - Programming assistance
     - Business support
     - Creative design assistance
-    - Conversation memory
-    - Smart history optimization
-    - Automatic model fallback
-    - Error recovery
     """)
 
     st.divider()
@@ -363,7 +436,7 @@ with st.sidebar:
     st.caption("Creative Design. Professional Results.")
 
 # ==========================================
-# DISPLAY CHAT HISTORY
+# DISPLAY SAVED CHAT
 # ==========================================
 
 for message in st.session_state.messages:
@@ -380,10 +453,16 @@ user_prompt = st.chat_input(
 )
 
 # ==========================================
-# GENERATE RESPONSE
+# GENERATE AND SAVE
 # ==========================================
 
 if user_prompt:
+
+    # Save user message to permanent database.
+    user_saved = save_message(
+        "user",
+        user_prompt
+    )
 
     st.session_state.messages.append({
         "role": "user",
@@ -393,7 +472,6 @@ if user_prompt:
     with st.chat_message("user"):
         st.markdown(user_prompt)
 
-    # Prepare only recent conversation context.
     api_history = prepare_history(
         st.session_state.messages
     )
@@ -409,6 +487,12 @@ if user_prompt:
                 output_placeholder
             )
 
+            # Save assistant response permanently.
+            assistant_saved = save_message(
+                "assistant",
+                answer
+            )
+
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": answer
@@ -421,23 +505,24 @@ if user_prompt:
                 )
 
             if stream_error:
+                st.warning(
+                    "Response generation was interrupted: "
+                    + stream_error
+                )
 
-                st.warning(stream_error)
+            if assistant_saved:
+                st.caption("☁️ Saved to permanent memory")
 
         except Exception as error:
 
             output_placeholder.empty()
 
             st.error(
-                "Fahim AI could not generate a response. "
-                "Please try again."
+                "Fahim AI could not generate a response."
             )
 
             with st.expander("Technical error details"):
                 st.code(str(error))
-
-            # Remove failed user message.
-            st.session_state.messages.pop()
 
 # ==========================================
 # FOOTER
@@ -446,5 +531,5 @@ if user_prompt:
 st.divider()
 
 st.caption(
-    "© FAHIM AI | Powered by Google Gemini API"
+    "© FAHIM AI | Powered by Google Gemini and Supabase"
 )
