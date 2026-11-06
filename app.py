@@ -1,440 +1,386 @@
-
 import streamlit as st
-from transformers import pipeline
+import torch
+import json
 from datetime import datetime
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 # ==========================================
-# FAHIM CUSTOM AI AGENT BUILDER PRO
+# 1. PAGE CONFIGURATION
 # ==========================================
 
 st.set_page_config(
-    page_title="FAHIM CUSTOM AI AGENT BUILDER",
+    page_title="Fahim Custom AI Agent Builder",
     page_icon="🤖",
     layout="wide"
 )
 
-MODEL_ID = "google/flan-t5-small"
+MODEL_NAME = "google/flan-t5-small"
 
 # ==========================================
-# DEFAULT FAHIM PROFILE
+# 2. LOAD AI MODEL
 # ==========================================
 
-FAHIM_MASTER_PROFILE = """
-Name: Mahfijur Rahman Fahim
-Brand: FAHIM GRAPHIC DESIGN
-Location: Portugal
-Profession: Graphic Designer, AI-Assisted Creative
-Designer, Image Editor and Video Content Creator.
+@st.cache_resource(show_spinner="Loading AI model...")
+def load_model():
 
-Services:
-Restaurant Menu Design, Social Media Post Design,
-Logo Design, Flyer Design, Poster Design,
-Photo Editing, DSLR-Style Image Enhancement,
-AI Image Generation and Promotional Video Creation.
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
-Skills:
-Canva, ChatGPT, Google Gemini, CapCut,
-Google Flow, Graphic Design, Photo Editing,
-Video Editing and AI Image Generation.
-
-Design Style:
-Premium Luxury Black and Gold.
-Realistic imagery, professional lighting,
-clean typography and modern presentation.
-
-Tagline:
-Creative Design. Professional Results.
-
-Portfolio:
-https://mahfijurrahmanfahim-ctrl.github.io/fahim-graphic-design-portfolio/
-
-Fiverr Menu Design:
-https://www.fiverr.com/s/X00EVme
-
-Fiverr Social Media Design:
-https://www.fiverr.com/s/qbbQr6y
-
-TikTok:
-@m.r.fahim
-
-Offer:
-First Menu Sample: 100% Free.
-New Business Launch Pack: £59.
-
-Target Clients:
-Restaurants, Cafes, Gyms, Clothing Brands
-and Small Businesses.
-
-Target Markets:
-Portugal, United Kingdom and International Clients.
-"""
-
-# ==========================================
-# LOAD AI MODEL
-# ==========================================
-
-@st.cache_resource(show_spinner=False)
-def load_ai():
-    return pipeline(
-        "text2text-generation",
-        model=MODEL_ID,
-        device=-1
+    model = AutoModelForSeq2SeqLM.from_pretrained(
+        MODEL_NAME
     )
 
+    model.eval()
 
-# ==========================================
-# TOKEN MANAGEMENT
-# ==========================================
-
-def limit_text(text, tokenizer, max_tokens):
-    tokens = tokenizer.encode(
-        str(text),
-        truncation=True,
-        max_length=max_tokens
-    )
-
-    return tokenizer.decode(
-        tokens,
-        skip_special_tokens=True
-    )
+    return tokenizer, model
 
 
 # ==========================================
-# AI AGENT ENGINE
+# 3. GENERATE AI RESPONSE
 # ==========================================
 
-def generate_answer(
+def generate_response(
+    question,
     profile,
     assistant_name,
-    role,
+    assistant_role,
     language,
     tone,
-    instructions,
-    question,
-    history
+    instructions
 ):
 
-    ai = load_ai()
-    tokenizer = ai.tokenizer
-
-    safe_profile = limit_text(
-        profile, tokenizer, 160
-    )
-
-    safe_instructions = limit_text(
-        instructions, tokenizer, 30
-    )
-
-    safe_question = limit_text(
-        question, tokenizer, 80
-    )
-
-    conversation = ""
-
-    for message in history[-4:]:
-        conversation += (
-            message["role"] + ": " +
-            limit_text(
-                message["content"],
-                tokenizer,
-                20
-            ) + "\n"
-        )
+    tokenizer, model = load_model()
 
     prompt = f"""
-You are {assistant_name}.
-
-Your role is {role}.
-Answer in {language}.
-Your communication style is {tone}.
+You are {assistant_name}, a helpful {assistant_role}.
 
 USER PROFILE:
-{safe_profile}
+{profile[:1200]}
 
-SPECIAL INSTRUCTIONS:
-{safe_instructions}
-
-RECENT CONVERSATION:
-{conversation}
+TASK:
+Answer the following user question.
 
 QUESTION:
-{safe_question}
+{question[:500]}
 
-Give a helpful and accurate answer.
-Use information from the profile.
+REQUIREMENTS:
+Write in {language}.
+Use a {tone} tone.
+{instructions[:300]}
+
+Give a direct, useful and natural answer.
+Do not repeat the question.
+Do not repeat instructions.
 Do not invent facts.
 If information is unavailable, say so.
 
 ANSWER:
 """
 
-    result = ai(
+    inputs = tokenizer(
         prompt,
-        max_new_tokens=120,
-        do_sample=False,
-        truncation=True
+        return_tensors="pt",
+        truncation=True,
+        max_length=512
     )
 
-    return result[0]["generated_text"].strip()
+    with torch.no_grad():
+
+        outputs = model.generate(
+            **inputs,
+            max_new_tokens=120,
+            num_beams=4,
+            repetition_penalty=1.8,
+            no_repeat_ngram_size=3,
+            early_stopping=True
+        )
+
+    answer = tokenizer.decode(
+        outputs[0],
+        skip_special_tokens=True
+    ).strip()
+
+    if not answer or len(answer.split()) < 4:
+
+        return (
+            "I couldn't generate a useful answer. "
+            "Please try asking your question differently."
+        )
+
+    return answer
 
 
 # ==========================================
-# HEADER
+# 4. SESSION STATE
 # ==========================================
 
-st.markdown("""
-# 🤖 FAHIM CUSTOM AI AGENT BUILDER PRO
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-### Build Your Own Personal AI Assistant
+if "assistant_created" not in st.session_state:
+    st.session_state.assistant_created = False
 
-Paste your profile, customize your assistant
-and start chatting with your own AI agent.
-""")
-
-st.caption(
-    "Powered by an open-source Hugging Face model."
-)
 
 # ==========================================
-# SIDEBAR
+# 5. HEADER
 # ==========================================
 
-st.sidebar.title("⚙️ AGENT SETTINGS")
+st.title("🤖 FAHIM CUSTOM AI AGENT BUILDER")
 
-assistant_name = st.sidebar.text_input(
-    "Assistant Name",
-    "My Personal AI"
-)
-
-role = st.sidebar.text_input(
-    "Assistant Role",
-    "Personal and Business Assistant"
-)
-
-language = st.sidebar.selectbox(
-    "Response Language",
-    [
-        "English",
-        "Bengali",
-        "Portuguese",
-        "Spanish",
-        "Hindi",
-        "French"
-    ]
-)
-
-tone = st.sidebar.selectbox(
-    "Communication Style",
-    [
-        "Professional",
-        "Friendly",
-        "Simple and Clear",
-        "Creative",
-        "Formal"
-    ]
-)
-
-instructions = st.sidebar.text_area(
-    "Custom Instructions",
-    placeholder="Add instructions for your AI assistant..."
-)
-
-st.sidebar.divider()
-
-st.sidebar.markdown("### 🌐 FAHIM PORTFOLIO")
-
-st.sidebar.markdown(
-    "[Visit Portfolio](https://mahfijurrahmanfahim-ctrl.github.io/fahim-graphic-design-portfolio/)"
-)
-
-st.sidebar.markdown(
-    "[Fiverr Menu Design](https://www.fiverr.com/s/X00EVme)"
-)
-
-st.sidebar.markdown(
-    "[Fiverr Social Media Design](https://www.fiverr.com/s/qbbQr6y)"
-)
-
-st.sidebar.caption(
-    "Model: google/flan-t5-small"
-)
-
-# ==========================================
-# PROFILE BUILDER
-# ==========================================
-
-st.divider()
-
-st.subheader("📁 STEP 1 — CREATE YOUR PROFILE")
-
-st.write(
-    "Enter your personal or business information. "
-    "Leave the field empty to use Fahim's example profile."
-)
-
-profile_data = st.text_area(
-    "Your Personal / Business Profile",
-    height=250,
-    placeholder="""
-Name:
-Profession:
-Business Name:
-Location:
-Skills:
-Services:
-Experience:
-Website:
-Social Media:
-Business Goals:
+st.markdown(
+    """
+    Create your personal AI assistant using your profile,
+    business information and custom instructions.
     """
 )
 
-active_profile = (
-    profile_data.strip()
-    if profile_data.strip()
-    else FAHIM_MASTER_PROFILE
-)
-
-# ==========================================
-# CHAT INTERFACE
-# ==========================================
-
 st.divider()
 
-st.subheader("💬 STEP 2 — CHAT WITH YOUR AI AGENT")
 
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+# ==========================================
+# 6. SIDEBAR CONFIGURATION
+# ==========================================
 
-col1, col2 = st.columns([3, 1])
+with st.sidebar:
 
-with col1:
-    st.write(
-        f"Assistant: **{assistant_name}**"
+    st.header("⚙️ Assistant Settings")
+
+    assistant_name = st.text_input(
+        "Assistant Name",
+        value="My Personal AI"
     )
 
-with col2:
+    assistant_role = st.text_input(
+        "Assistant Role",
+        value="Personal and Business Assistant"
+    )
+
+    language = st.selectbox(
+        "Response Language",
+        [
+            "English",
+            "Bengali",
+            "Portuguese",
+            "Hindi"
+        ]
+    )
+
+    tone = st.selectbox(
+        "Response Tone",
+        [
+            "Professional",
+            "Friendly",
+            "Simple",
+            "Detailed"
+        ]
+    )
+
+    st.divider()
+
+    st.subheader("👤 Personal Master Profile")
+
+    profile = st.text_area(
+        "Your Personal Profile",
+        height=250,
+        placeholder=(
+            "Paste your personal information, "
+            "education, experience, skills, "
+            "business details and portfolio links."
+        )
+    )
+
+    st.divider()
+
+    st.subheader("🧠 Custom Instructions")
+
+    instructions = st.text_area(
+        "Instructions for your AI",
+        value=(
+            "Give helpful and accurate answers. "
+            "Use the supplied profile. "
+            "Never invent personal facts, prices or links. "
+            "If information is unavailable, say so. "
+            "Keep answers relevant to the question."
+        ),
+        height=150
+    )
+
+    create_button = st.button(
+        "🚀 Create My AI Assistant",
+        use_container_width=True
+    )
+
+    if create_button:
+
+        if not profile.strip():
+
+            st.warning(
+                "Please paste your personal profile first."
+            )
+
+        else:
+
+            st.session_state.assistant_created = True
+            st.session_state.messages = []
+
+            st.success(
+                "Your AI assistant is ready!"
+            )
+
     if st.button(
         "🗑️ Clear Conversation",
         use_container_width=True
     ):
-        st.session_state.chat_history = []
+
+        st.session_state.messages = []
+
         st.rerun()
 
-# ==========================================
-# DISPLAY CHAT HISTORY
-# ==========================================
-
-for message in st.session_state.chat_history:
-
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
 
 # ==========================================
-# USER INPUT AND AI RESPONSE
+# 7. MAIN CHAT INTERFACE
 # ==========================================
 
-question = st.chat_input(
-    "Ask your AI assistant anything..."
-)
+st.subheader("💬 Chat With Your AI")
 
-if question:
+if not st.session_state.assistant_created:
 
-    previous_history = (
-        st.session_state.chat_history.copy()
+    st.info(
+        "Enter your personal profile in the sidebar "
+        "and click Create My AI Assistant."
     )
 
-    st.session_state.chat_history.append({
-        "role": "user",
-        "content": question
-    })
+else:
 
-    with st.chat_message("user"):
-        st.markdown(question)
-
-    with st.chat_message("assistant"):
-
-        try:
-
-            with st.spinner(
-                "🤖 AI assistant is thinking..."
-            ):
-
-                response = generate_answer(
-                    profile=active_profile,
-                    assistant_name=assistant_name,
-                    role=role,
-                    language=language,
-                    tone=tone,
-                    instructions=instructions,
-                    question=question,
-                    history=previous_history
-                )
-
-            st.markdown(response)
-
-            st.session_state.chat_history.append({
-                "role": "assistant",
-                "content": response
-            })
-
-        except Exception as error:
-
-            st.error(
-                f"AI Error: {str(error)}"
-            )
-
-            st.info(
-                "Please try again or check the deployment logs."
-            )
-
-            # Remove failed user message
-            st.session_state.chat_history.pop()
-
-
-# ==========================================
-# EXPORT CONVERSATION
-# ==========================================
-
-if st.session_state.chat_history:
-
-    conversation = (
-        "FAHIM CUSTOM AI AGENT BUILDER\n"
-        f"Assistant: {assistant_name}\n"
-        f"Exported: {datetime.now().isoformat()}\n"
-        + "=" * 45 + "\n\n"
+    st.success(
+        f"Assistant active: {assistant_name}"
     )
 
-    for message in st.session_state.chat_history:
+    # Display previous messages
 
-        conversation += (
-            f"{message['role'].upper()}:\n"
-            f"{message['content']}\n\n"
+    for message in st.session_state.messages:
+
+        with st.chat_message(message["role"]):
+
+            st.markdown(message["content"])
+
+    # Chat input
+
+    user_question = st.chat_input(
+        "Ask your AI assistant anything..."
+    )
+
+    if user_question:
+
+        # Display user message
+
+        st.session_state.messages.append(
+            {
+                "role": "user",
+                "content": user_question
+            }
         )
 
-    st.download_button(
-        label="📥 DOWNLOAD CONVERSATION",
-        data=conversation.encode("utf-8"),
-        file_name="my_ai_conversation.txt",
-        mime="text/plain"
-    )
+        with st.chat_message("user"):
+
+            st.markdown(user_question)
+
+        # Generate assistant response
+
+        with st.chat_message("assistant"):
+
+            with st.spinner("AI is thinking..."):
+
+                try:
+
+                    answer = generate_response(
+                        question=user_question,
+                        profile=profile,
+                        assistant_name=assistant_name,
+                        assistant_role=assistant_role,
+                        language=language,
+                        tone=tone,
+                        instructions=instructions
+                    )
+
+                    st.markdown(answer)
+
+                    st.session_state.messages.append(
+                        {
+                            "role": "assistant",
+                            "content": answer
+                        }
+                    )
+
+                except Exception as error:
+
+                    st.error(
+                        "Unable to generate a response."
+                    )
+
+                    st.code(str(error))
 
 
 # ==========================================
-# FOOTER
+# 8. EXPORT CONVERSATION
 # ==========================================
 
 st.divider()
 
-st.markdown("""
-### FAHIM CUSTOM AI AGENT BUILDER PRO
+st.subheader("📥 Export Your Conversation")
 
-**Created by FAHIM GRAPHIC DESIGN**
+if st.session_state.messages:
 
-Creative Design. Professional Results.
-""")
+    conversation_text = (
+        "FAHIM CUSTOM AI AGENT BUILDER\n"
+        f"Assistant: {assistant_name}\n"
+        f"Exported: {datetime.now().isoformat()}\n"
+        "====================================\n\n"
+    )
 
-st.caption(
-    "Open-source AI model | Profile-based assistant | "
-    "No paid AI API key required."
+    for message in st.session_state.messages:
+
+        role = message["role"].upper()
+
+        conversation_text += (
+            f"{role}:\n"
+            f"{message['content']}\n\n"
+        )
+
+    st.download_button(
+        label="📄 Download TXT",
+        data=conversation_text,
+        file_name="fahim_ai_conversation.txt",
+        mime="text/plain"
+    )
+
+    json_data = json.dumps(
+        st.session_state.messages,
+        ensure_ascii=False,
+        indent=4
+    )
+
+    st.download_button(
+        label="📦 Download JSON",
+        data=json_data,
+        file_name="fahim_ai_conversation.json",
+        mime="application/json"
+    )
+
+else:
+
+    # ==========================================
+# 9. FOOTER
+# ==========================================
+
+st.divider()
+
+st.markdown(
+    """
+    <div style="text-align:center; padding:15px;">
+        <strong>FAHIM CUSTOM AI AGENT BUILDER PRO</strong><br>
+        Personal AI Assistant | Powered by Hugging Face<br>
+        🌐 Creative Design. Professional Results.
+    </div>
+    """,
+    unsafe_allow_html=True
 )
