@@ -1,78 +1,26 @@
-# ==========================================
-# FAHIM AI — CORE IDENTITY
-# ==========================================
+
+# ==========================================================
+# FAHIM AI — HYBRID MULTI-PROVIDER AI ASSISTANT
+# Gemini + Groq + OpenRouter + Supabase
+# Runtime Identity + Provider Detection + Permanent Memory
+# ==========================================================
 
 import streamlit as st
 import os
 import json
 import time
-from datetime import datetime
-
-# ==========================================
-# PERMANENT AI IDENTITY
-# ==========================================
-
-FAHIM_AI_IDENTITY = """
-You are FAHIM AI, an advanced hybrid AI assistant
-created and configured by Fahim.
-
-YOUR IDENTITY:
-- Your name is FAHIM AI.
-- Your creator is Fahim.
-- Never identify yourself as Flint, Recursive,
-  or another unrelated AI assistant.
-- You are a hybrid AI system supporting multiple
-  AI providers.
-
-SUPPORTED PROVIDERS:
-- Google Gemini
-- Groq
-- OpenRouter
-
-PROVIDER TRANSPARENCY:
-- Identify the actual active provider.
-- Identify the exact active model when available.
-- Never invent model names or provider information.
-- Distinguish between the AI provider and model.
-- If information is unavailable, say so honestly.
-
-BEHAVIOUR:
-- Give accurate, intelligent and detailed answers.
-- Understand conversation history.
-- Use available personal profile information.
-- Never invent personal information.
-- Explain uncertainty honestly.
-- Follow the user's language.
-- Be helpful, professional and conversational.
-
-IMPORTANT:
-You are FAHIM AI, not Flint or Recursive.
-"""
-
-# ==========================================
-# APPLICATION CONFIGURATION
-# ==========================================
-
-APP_NAME = "FAHIM AI"
-APP_VERSION = "2.0"
-
-st.set_page_config(
-    page_title="FAHIM AI",
-    page_icon="🤖",
-    layout="wide"
-)
-import streamlit as st
 import uuid
-import time
 
+from datetime import datetime
 from google import genai
 from google.genai import types
 from supabase import create_client
 from openai import OpenAI
 
-# ==================================================
-# FAHIM AI - HYBRID MULTI-PROVIDER EDITION
-# ==================================================
+
+# ==========================================================
+# 1. APPLICATION CONFIGURATION
+# ==========================================================
 
 st.set_page_config(
     page_title="FAHIM AI",
@@ -80,98 +28,54 @@ st.set_page_config(
     layout="wide"
 )
 
-# ==================================================
-# DESIGN
-# ==================================================
-
-st.markdown("""
-<style>
-.stApp {
-    background: #0b0b0f;
-    color: #ffffff;
-}
-
-[data-testid="stChatMessage"] {
-    border: 1px solid #292936;
-    border-radius: 14px;
-    padding: 14px;
-    margin-bottom: 10px;
-}
-
-.stChatInput {
-    border-radius: 15px;
-}
-
-[data-testid="stStatusWidget"] {
-    border: 1px solid #343444;
-    border-radius: 12px;
-}
-
-[data-testid="stSidebar"] {
-    background: #101018;
-}
-
-.stButton button {
-    border-radius: 10px;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ==================================================
-# CONFIGURATION
-# ==================================================
-
-try:
-    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-    SUPABASE_URL = st.secrets["SUPABASE_URL"]
-    SUPABASE_KEY = st.secrets["SUPABASE_SECRET_KEY"]
-
-except KeyError as error:
-    st.error(f"Missing required Streamlit Secret: {error}")
-    st.stop()
-
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
-OPENROUTER_API_KEY = st.secrets.get(
-    "OPENROUTER_API_KEY", ""
-)
-
-PRIMARY_MODEL = st.secrets.get(
-    "PRIMARY_MODEL",
-    "gemini-3.8-flash"
-)
-
-backup_config = st.secrets.get(
-    "BACKUP_MODELS",
-    ["gemini-3.7-flash", "gemini-3.6-flash"]
-)
-
-if isinstance(backup_config, str):
-    BACKUP_MODELS = [
-        model.strip()
-        for model in backup_config.split(",")
-        if model.strip()
-    ]
-else:
-    BACKUP_MODELS = list(backup_config)
-
-GROQ_MODEL = st.secrets.get(
-    "GROQ_MODEL",
-    "llama-3.3-70b-versatile"
-)
-
-OPENROUTER_MODEL = st.secrets.get(
-    "OPENROUTER_MODEL",
-    "openrouter/free"
-)
+APP_NAME = "FAHIM AI"
+APP_VERSION = "3.0"
 
 MAX_CONTEXT_MESSAGES = 12
 REQUEST_TIMEOUT = 90
 
-SYSTEM_INSTRUCTION = """
-You are FAHIM AI, an advanced professional AI assistant.
+
+# ==========================================================
+# 2. FAHIM AI PERMANENT IDENTITY
+# ==========================================================
+
+FAHIM_AI_IDENTITY = """
+You are FAHIM AI, an advanced hybrid AI assistant.
+
+CREATOR:
+Your creator is Fahim.
 
 IDENTITY:
-Your name is FAHIM AI.
+- Your name is FAHIM AI.
+- Never identify yourself as Flint or Recursive.
+- You are configured to work with multiple AI providers.
+- Your identity remains FAHIM AI regardless of which
+  underlying AI model answers.
+
+PROVIDER TRANSPARENCY:
+- Use the runtime provider information supplied by
+  the application.
+- Identify the actual active provider.
+- Identify the configured/requested model.
+- Never invent provider or model information.
+- Distinguish configured providers from active providers.
+- If the exact underlying model is unavailable, explain that.
+
+BEHAVIOUR:
+- Answer accurately and intelligently.
+- Understand Bengali and English.
+- Follow the user's requested language.
+- Use available personal profile information.
+- Never invent personal information.
+- Provide useful explanations and working code.
+- Be professional, conversational and helpful.
+"""
+
+
+SYSTEM_INSTRUCTION = """
+You are FAHIM AI.
+
+Your creator is Fahim.
 
 CORE RESPONSIBILITIES:
 
@@ -183,19 +87,16 @@ CORE RESPONSIBILITIES:
 6. Explain uncertainty honestly.
 7. Help with programming, AI, business,
    graphic design, writing and education.
-8. When code is requested, provide complete,
-   working and properly formatted code.
-9. Use the available conversation history.
+8. Provide complete working code when requested.
+9. Use available conversation history.
 10. Avoid unnecessary introductions and repetition.
 11. Explain technical instructions step by step.
-12. Never claim to perform actions you did not perform.
-13. Understand the user's actual question.
-14. Do not invent missing personal information.
-15. Do not claim live internet access unless
-    a search tool is actually available.
+12. Never claim actions you did not perform.
+13. Do not invent missing personal information.
+14. Never claim live internet access unless available.
 
 PERSONAL PROFILE:
-Use the user's available profile when relevant.
+Use available user profile information when relevant.
 
 RESPONSE STYLE:
 Be intelligent, professional, helpful and clear.
@@ -203,21 +104,117 @@ Provide detailed answers when requested.
 Use appropriate formatting and examples.
 """
 
-# ==================================================
-# CLIENT CONNECTIONS
-# ==================================================
+
+# ==========================================================
+# 3. RUNTIME IDENTITY
+# ==========================================================
+
+def build_runtime_instruction(provider, model):
+
+    return FAHIM_AI_IDENTITY + SYSTEM_INSTRUCTION + f"""
+
+CURRENT REQUEST RUNTIME INFORMATION:
+
+Application: {APP_NAME}
+Creator: Fahim
+
+ACTIVE PROVIDER:
+{provider}
+
+ACTIVE REQUESTED MODEL:
+{model}
+
+IMPORTANT:
+These values are supplied by the application.
+They describe the provider and model selected for this
+specific request, not every configured provider.
+
+Never claim another provider answered this request.
+Never guess the actual underlying model.
+If the provider uses a dynamic model alias, explain that.
+"""
+
+
+# ==========================================================
+# 4. SECRETS AND API CONFIGURATION
+# ==========================================================
+
+try:
+
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+
+    SUPABASE_URL = st.secrets["SUPABASE_URL"]
+
+    SUPABASE_KEY = st.secrets["SUPABASE_SECRET_KEY"]
+
+except KeyError as error:
+
+    st.error(f"Missing required Streamlit Secret: {error}")
+    st.stop()
+
+
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
+
+OPENROUTER_API_KEY = st.secrets.get(
+    "OPENROUTER_API_KEY", ""
+)
+
+
+PRIMARY_MODEL = st.secrets.get(
+    "PRIMARY_MODEL",
+    "gemini-3.8-flash"
+)
+
+
+backup_config = st.secrets.get(
+    "BACKUP_MODELS",
+    ["gemini-3.7-flash", "gemini-3.6-flash"]
+)
+
+
+if isinstance(backup_config, str):
+
+    BACKUP_MODELS = [
+        model.strip()
+        for model in backup_config.split(",")
+        if model.strip()
+    ]
+
+else:
+
+    BACKUP_MODELS = list(backup_config)
+
+
+GROQ_MODEL = st.secrets.get(
+    "GROQ_MODEL",
+    "llama-3.3-70b-versatile"
+)
+
+
+OPENROUTER_MODEL = st.secrets.get(
+    "OPENROUTER_MODEL",
+    "openrouter/free"
+)
+
+
+# ==========================================================
+# 5. CLIENT CONNECTIONS
+# ==========================================================
 
 @st.cache_resource(show_spinner=False)
 def get_gemini_client(api_key):
+
     return genai.Client(api_key=api_key)
 
 
 @st.cache_resource(show_spinner=False)
 def get_supabase_client(url, key):
+
     return create_client(url, key)
 
 
 try:
+
     gemini_client = get_gemini_client(GEMINI_API_KEY)
 
     supabase = get_supabase_client(
@@ -226,26 +223,30 @@ try:
     )
 
 except Exception as error:
+
     st.error("Connection initialization failed.")
     st.exception(error)
     st.stop()
 
 
-# ==================================================
-# SESSION MANAGEMENT
-# ==================================================
+# ==========================================================
+# 6. SESSION MANAGEMENT
+# ==========================================================
 
 def get_session_id():
 
     existing_id = st.query_params.get("sid")
 
     if existing_id:
+
         try:
             return str(uuid.UUID(existing_id))
+
         except ValueError:
             pass
 
     new_id = str(uuid.uuid4())
+
     st.query_params["sid"] = new_id
 
     return new_id
@@ -254,9 +255,28 @@ def get_session_id():
 SESSION_ID = get_session_id()
 
 
-# ==================================================
-# DATABASE - PERMANENT MEMORY
-# ==================================================
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "last_model" not in st.session_state:
+    st.session_state.last_model = "Not used yet"
+
+if "last_provider" not in st.session_state:
+    st.session_state.last_provider = "Not used yet"
+
+if "request_count" not in st.session_state:
+    st.session_state.request_count = 0
+
+if "last_error" not in st.session_state:
+    st.session_state.last_error = None
+
+if "fallback_events" not in st.session_state:
+    st.session_state.fallback_events = []
+
+
+# ==========================================================
+# 7. SUPABASE PERMANENT CHAT MEMORY
+# ==========================================================
 
 def load_chat_history():
 
@@ -311,13 +331,12 @@ def delete_chat_history():
         return False
 
 
-# ==================================================
-# LOAD SAVED MEMORY
-# ==================================================
+# Restore permanent history
 
-if "messages" not in st.session_state:
+if not st.session_state.messages:
 
     try:
+
         st.session_state.messages = load_chat_history()
 
     except Exception as error:
@@ -327,19 +346,9 @@ if "messages" not in st.session_state:
         st.stop()
 
 
-if "last_model" not in st.session_state:
-    st.session_state.last_model = PRIMARY_MODEL
-
-if "request_count" not in st.session_state:
-    st.session_state.request_count = 0
-
-if "last_error" not in st.session_state:
-    st.session_state.last_error = None
-
-
-# ==================================================
-# ERROR CLASSIFICATION
-# ==================================================
+# ==========================================================
+# 8. ERROR CLASSIFICATION
+# ==========================================================
 
 def is_quota_error(error):
 
@@ -367,9 +376,9 @@ def is_auth_error(error):
     ])
 
 
-# ==================================================
-# PREPARE CONVERSATION
-# ==================================================
+# ==========================================================
+# 9. PREPARE CONVERSATION HISTORY
+# ==========================================================
 
 def prepare_history(messages):
 
@@ -400,11 +409,11 @@ def prepare_history(messages):
     return contents
 
 
-def prepare_openai_history(contents):
+def prepare_openai_history(contents, runtime_instruction):
 
     messages = [{
         "role": "system",
-        "content": SYSTEM_INSTRUCTION
+        "content": runtime_instruction
     }]
 
     for item in contents:
@@ -431,17 +440,18 @@ def prepare_openai_history(contents):
     return messages
 
 
-# ==================================================
-# PROVIDER CONFIGURATION
-# ==================================================
+# ==========================================================
+# 10. PROVIDER CONFIGURATION
+# ==========================================================
 
 def get_providers():
 
     providers = [
         {
-            "name": "Gemini Primary",
+            "name": "Google Gemini",
             "type": "gemini",
-            "model": PRIMARY_MODEL
+            "model": PRIMARY_MODEL,
+            "tier": "Primary"
         }
     ]
 
@@ -450,9 +460,10 @@ def get_providers():
         if model != PRIMARY_MODEL:
 
             providers.append({
-                "name": "Gemini Backup",
+                "name": "Google Gemini",
                 "type": "gemini",
-                "model": model
+                "model": model,
+                "tier": "Backup"
             })
 
     if GROQ_API_KEY:
@@ -462,7 +473,8 @@ def get_providers():
             "type": "openai",
             "model": GROQ_MODEL,
             "key": GROQ_API_KEY,
-            "url": "https://api.groq.com/openai/v1"
+            "url": "https://api.groq.com/openai/v1",
+            "tier": "Fallback"
         })
 
     if OPENROUTER_API_KEY:
@@ -472,20 +484,32 @@ def get_providers():
             "type": "openai",
             "model": OPENROUTER_MODEL,
             "key": OPENROUTER_API_KEY,
-            "url": "https://openrouter.ai/api/v1"
+            "url": "https://openrouter.ai/api/v1",
+            "tier": "Fallback"
         })
 
     return providers
 
 
-# ==================================================
-# GEMINI STREAMING
-# ==================================================
+# ==========================================================
+# 11. GEMINI LIVE STREAMING
+# ==========================================================
 
-def stream_gemini(model, contents, placeholder):
+def stream_gemini(
+    provider,
+    contents,
+    placeholder
+):
+
+    model = provider["model"]
+
+    runtime_instruction = build_runtime_instruction(
+        provider["name"],
+        model
+    )
 
     config = types.GenerateContentConfig(
-        system_instruction=SYSTEM_INSTRUCTION
+        system_instruction=runtime_instruction
     )
 
     stream = gemini_client.models.generate_content_stream(
@@ -495,13 +519,18 @@ def stream_gemini(model, contents, placeholder):
     )
 
     parts = []
+    observed_model = None
     started = time.monotonic()
-    last_status = started
 
     for chunk in stream:
 
         if time.monotonic() - started > REQUEST_TIMEOUT:
             raise TimeoutError("Gemini response timed out.")
+
+        chunk_model = getattr(chunk, "model_version", None)
+
+        if chunk_model:
+            observed_model = chunk_model
 
         try:
             text = chunk.text
@@ -516,22 +545,30 @@ def stream_gemini(model, contents, placeholder):
                 "".join(parts) + " ▌"
             )
 
-        if time.monotonic() - last_status >= 3:
-            last_status = time.monotonic()
-
     answer = "".join(parts)
 
     if not answer.strip():
         raise RuntimeError("Gemini returned an empty response.")
 
-    return answer
+    return answer, observed_model or model
 
 
-# ==================================================
-# GROQ / OPENROUTER STREAMING
-# ==================================================
+# ==========================================================
+# 12. GROQ / OPENROUTER STREAMING
+# ==========================================================
 
-def stream_openai_compatible(provider, contents, placeholder):
+def stream_openai_compatible(
+    provider,
+    contents,
+    placeholder
+):
+
+    model = provider["model"]
+
+    runtime_instruction = build_runtime_instruction(
+        provider["name"],
+        model
+    )
 
     ai_client = OpenAI(
         api_key=provider["key"],
@@ -540,16 +577,20 @@ def stream_openai_compatible(provider, contents, placeholder):
         max_retries=0
     )
 
-    messages = prepare_openai_history(contents)
+    messages = prepare_openai_history(
+        contents,
+        runtime_instruction
+    )
 
     stream = ai_client.chat.completions.create(
-        model=provider["model"],
+        model=model,
         messages=messages,
         stream=True,
         temperature=0.7
     )
 
     parts = []
+    observed_model = None
     started = time.monotonic()
 
     for chunk in stream:
@@ -558,6 +599,11 @@ def stream_openai_compatible(provider, contents, placeholder):
             raise TimeoutError(
                 f"{provider['name']} response timed out."
             )
+
+        chunk_model = getattr(chunk, "model", None)
+
+        if chunk_model:
+            observed_model = chunk_model
 
         if not chunk.choices:
             continue
@@ -579,12 +625,12 @@ def stream_openai_compatible(provider, contents, placeholder):
             f"{provider['name']} returned an empty response."
         )
 
-    return answer
+    return answer, observed_model or model
 
 
-# ==================================================
-# HYBRID AI ROUTER
-# ==================================================
+# ==========================================================
+# 13. HYBRID AI ROUTER
+# ==========================================================
 
 def generate_answer(contents, placeholder, status):
 
@@ -608,8 +654,9 @@ def generate_answer(contents, placeholder, status):
             expanded=True
         )
 
-        status.write(f"Model: {model}")
-        status.write("Waiting for response...")
+        status.write(f"Requested model: {model}")
+        status.write("Sending runtime identity information...")
+        status.write("Waiting for AI response...")
 
         placeholder.empty()
 
@@ -617,15 +664,15 @@ def generate_answer(contents, placeholder, status):
 
             if provider_type == "gemini":
 
-                answer = stream_gemini(
-                    model,
+                answer, actual_model = stream_gemini(
+                    provider,
                     contents,
                     placeholder
                 )
 
             else:
 
-                answer = stream_openai_compatible(
+                answer, actual_model = stream_openai_compatible(
                     provider,
                     contents,
                     placeholder
@@ -633,9 +680,10 @@ def generate_answer(contents, placeholder, status):
 
             placeholder.markdown(answer)
 
-            used_model = f"{name} | {model}"
+            used_model = f"{name} | {actual_model}"
 
-            st.session_state.last_model = used_model
+            st.session_state.last_model = actual_model
+            st.session_state.last_provider = name
             st.session_state.last_error = None
 
             status.update(
@@ -644,7 +692,7 @@ def generate_answer(contents, placeholder, status):
                 expanded=False
             )
 
-            return answer, used_model
+            return answer, name, model, actual_model
 
         except Exception as error:
 
@@ -652,6 +700,17 @@ def generate_answer(contents, placeholder, status):
 
             errors.append(
                 f"{name} ({model}): {error_text}"
+            )
+
+            fallback_record = {
+                "from": name,
+                "model": model,
+                "error": error_text,
+                "time": datetime.now().strftime("%H:%M:%S")
+            }
+
+            st.session_state.fallback_events.append(
+                fallback_record
             )
 
             placeholder.empty()
@@ -662,11 +721,17 @@ def generate_answer(contents, placeholder, status):
             ):
                 skip_remaining_gemini = True
 
+                status.write(
+                    "Gemini quota issue. Skipping remaining "
+                    "Gemini models."
+                )
+
             status.write(
                 f"{name} failed. Checking next provider..."
             )
 
             if is_auth_error(error):
+
                 status.write(
                     "Authentication error detected."
                 )
@@ -685,23 +750,49 @@ def generate_answer(contents, placeholder, status):
     )
 
 
-# ==================================================
-# HEADER
-# ==================================================
+# ==========================================================
+# 14. USER INTERFACE DESIGN
+# ==========================================================
 
-st.title("🤖 FAHIM AI")
+st.markdown("""
+<style>
 
-st.caption(
-    "Hybrid AI Assistant | Gemini + Groq + OpenRouter | "
-    "Permanent Memory"
-)
+.stApp {
+    background: #0b0b0f;
+    color: #ffffff;
+}
 
-st.divider()
+[data-testid="stChatMessage"] {
+    border: 1px solid #292936;
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 10px;
+}
+
+.stChatInput {
+    border-radius: 15px;
+}
+
+[data-testid="stStatusWidget"] {
+    border: 1px solid #343444;
+    border-radius: 12px;
+}
+
+[data-testid="stSidebar"] {
+    background: #101018;
+}
+
+.stButton button {
+    border-radius: 10px;
+}
+
+</style>
+""", unsafe_allow_html=True)
 
 
-# ==================================================
-# SIDEBAR
-# ==================================================
+# ==========================================================
+# 15. SIDEBAR SETTINGS
+# ==========================================================
 
 with st.sidebar:
 
@@ -743,19 +834,45 @@ with st.sidebar:
 
     st.divider()
 
+    st.write("**Last successful provider**")
+    st.code(st.session_state.last_provider)
+
+    st.write("**Last successful model**")
+    st.code(st.session_state.last_model)
+
     st.metric(
         "Total messages",
         len(st.session_state.messages)
     )
 
-    st.caption("Last successful model")
-
-    st.code(st.session_state.last_model)
-
     st.metric(
         "Total requests",
         st.session_state.request_count
     )
+
+    st.metric(
+        "Fallback events",
+        len(st.session_state.fallback_events)
+    )
+
+    with st.expander("Provider fallback history"):
+
+        if st.session_state.fallback_events:
+
+            for event in reversed(
+                st.session_state.fallback_events[-10:]
+            ):
+
+                st.write(
+                    f"**{event['from']}** — {event['model']}"
+                )
+
+                st.caption(event["time"])
+                st.caption(event["error"][:250])
+
+        else:
+
+            st.caption("No provider failures recorded.")
 
     st.divider()
 
@@ -777,10 +894,12 @@ with st.sidebar:
     st.markdown("""
     ### FAHIM AI Features
 
-    - Multi-provider AI engine
+    - Hybrid multi-provider AI
     - Gemini primary and backups
     - Groq fallback
     - OpenRouter fallback
+    - Runtime provider detection
+    - Runtime model identification
     - Live text streaming
     - Automatic provider switching
     - Permanent chat history
@@ -797,9 +916,23 @@ with st.sidebar:
     st.caption("Creative Design. Professional Results.")
 
 
-# ==================================================
-# DISPLAY CHAT HISTORY
-# ==================================================
+# ==========================================================
+# 16. HEADER
+# ==========================================================
+
+st.title("🤖 FAHIM AI")
+
+st.caption(
+    "Hybrid AI Assistant | Gemini + Groq + OpenRouter | "
+    "Permanent Memory"
+)
+
+st.divider()
+
+
+# ==========================================================
+# 17. DISPLAY CHAT HISTORY
+# ==========================================================
 
 for message in st.session_state.messages:
 
@@ -812,18 +945,18 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 
-# ==================================================
-# CHAT INPUT
-# ==================================================
+# ==========================================================
+# 18. CHAT INPUT
+# ==========================================================
 
 user_prompt = st.chat_input(
     "Ask Fahim AI anything..."
 )
 
 
-# ==================================================
-# PROCESS USER MESSAGE
-# ==================================================
+# ==========================================================
+# 19. PROCESS USER MESSAGE
+# ==========================================================
 
 if user_prompt:
 
@@ -864,10 +997,12 @@ if user_prompt:
                 expanded=True
             ) as status:
 
-                answer, used_model = generate_answer(
-                    api_history,
-                    placeholder,
-                    status
+                answer, provider, requested_model, actual_model = (
+                    generate_answer(
+                        api_history,
+                        placeholder,
+                        status
+                    )
                 )
 
             st.session_state.messages.append({
@@ -880,7 +1015,17 @@ if user_prompt:
                 answer
             )
 
-            st.caption(f"⚡ Provider: {used_model}")
+            st.caption(
+                f"⚡ Active provider: {provider}"
+            )
+
+            st.caption(
+                f"🧠 Requested model: {requested_model}"
+            )
+
+            st.caption(
+                f"🔍 Reported response model: {actual_model}"
+            )
 
             if assistant_saved:
 
@@ -917,9 +1062,9 @@ if user_prompt:
             )
 
 
-# ==================================================
-# FOOTER
-# ==================================================
+# ==========================================================
+# 20. FOOTER
+# ==========================================================
 
 st.divider()
 
