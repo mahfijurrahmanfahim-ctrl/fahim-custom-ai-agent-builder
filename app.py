@@ -1,10 +1,9 @@
 import streamlit as st
-import time
 from google import genai
 from google.genai import types
 
 # ==========================================
-# FAHIM AI - ADVANCED CHAT ASSISTANT
+# FAHIM AI - FAST STREAMING ENGINE
 # ==========================================
 
 st.set_page_config(
@@ -40,17 +39,16 @@ st.markdown("""
 
 try:
     API_KEY = st.secrets["GEMINI_API_KEY"]
-    client = genai.Client(api_key=API_KEY)
+
+    if not API_KEY:
+        st.error("Gemini API key is empty.")
+        st.stop()
 
 except KeyError:
     st.error(
         "GEMINI_API_KEY is missing. "
-        "Add it in Streamlit Cloud → App settings → Secrets."
+        "Add it in Streamlit Cloud → Settings → Secrets."
     )
-    st.stop()
-
-except Exception:
-    st.error("Gemini API client initialization failed.")
     st.stop()
 
 # ==========================================
@@ -71,28 +69,63 @@ MODELS = list(dict.fromkeys(
     [PRIMARY_MODEL] + BACKUP_MODELS
 ))
 
+# Keep recent conversation context.
+# Full conversation remains visible in the interface.
+MAX_CONTEXT_MESSAGES = 12
+
 SYSTEM_INSTRUCTION = """
 You are Fahim AI, an advanced AI assistant.
 
-Your responsibilities:
+IDENTITY:
+You are Fahim AI, a powerful, intelligent,
+professional and helpful AI assistant.
 
-1. Give accurate, helpful and detailed answers.
+CORE RESPONSIBILITIES:
+
+1. Give accurate, useful and detailed answers.
 2. Understand Bengali and English.
 3. Follow the language requested by the user.
 4. Answer directly inside the chat.
-5. Never invent facts, links or information.
+5. Never invent facts, sources or links.
 6. Explain uncertainty honestly.
 7. Help with programming, AI, business,
    graphic design, writing and education.
 8. When code is requested, provide complete,
    working and properly formatted code.
-9. Use the conversation history available to you.
-10. Avoid unnecessarily short answers.
+9. Use available conversation history.
+10. Avoid unnecessary restrictions on answer length.
 11. Explain technical instructions step by step.
 12. Never claim to perform actions you did not perform.
+13. Understand the user's actual question before answering.
+14. Avoid unnecessary introductions and repetition.
+15. Provide professional, practical solutions.
 
-Be intelligent, professional, friendly and accurate.
+PERSONAL PROFILE:
+Use the user's available profile information
+when it is relevant to the question.
+
+IMPORTANT:
+Do not invent missing personal information.
+Do not claim live internet access unless
+a search tool is actually available.
 """
+
+# ==========================================
+# CACHED GEMINI CLIENT
+# ==========================================
+
+@st.cache_resource(show_spinner=False)
+def get_client(api_key):
+    return genai.Client(api_key=api_key)
+
+
+try:
+    client = get_client(API_KEY)
+
+except Exception as error:
+    st.error("Gemini client initialization failed.")
+    st.code(str(error))
+    st.stop()
 
 # ==========================================
 # SESSION MEMORY
@@ -101,15 +134,28 @@ Be intelligent, professional, friendly and accurate.
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "last_model" not in st.session_state:
+    st.session_state.last_model = PRIMARY_MODEL
+
 # ==========================================
 # ERROR DETECTION
 # ==========================================
 
+def is_auth_error(error):
+    message = str(error).upper()
+
+    return any(code in message for code in [
+        "401",
+        "403",
+        "API_KEY_INVALID",
+        "PERMISSION_DENIED"
+    ])
+
+
 def is_temporary_error(error):
+    message = str(error).upper()
 
-    error_text = str(error).upper()
-
-    temporary_codes = [
+    return any(code in message for code in [
         "429",
         "500",
         "502",
@@ -120,90 +166,126 @@ def is_temporary_error(error):
         "INTERNAL",
         "DEADLINE_EXCEEDED",
         "TIMEOUT"
-    ]
-
-    return any(
-        code in error_text
-        for code in temporary_codes
-    )
-
-
-def is_auth_error(error):
-
-    error_text = str(error).upper()
-
-    auth_codes = [
-        "401",
-        "403",
-        "API_KEY_INVALID",
-        "PERMISSION_DENIED"
-    ]
-
-    return any(
-        code in error_text
-        for code in auth_codes
-    )
+    ])
 
 
 # ==========================================
-# SMART MODEL FALLBACK
+# OPTIMIZED CONVERSATION HISTORY
 # ==========================================
 
-def generate_ai_response(contents):
+def prepare_history(messages):
 
-    last_error = None
+    recent_messages = messages[-MAX_CONTEXT_MESSAGES:]
 
-    for model_index, model_name in enumerate(MODELS):
+    # Gemini conversation should start with a user message.
+    while (
+        recent_messages
+        and recent_messages[0]["role"] != "user"
+    ):
+        recent_messages = recent_messages[1:]
 
-        # Primary model gets one automatic retry.
-        # Backup models get one attempt each.
-        max_attempts = 2 if model_index == 0 else 1
+    contents = []
 
-        for attempt in range(max_attempts):
+    for message in recent_messages:
 
-            try:
+        role = (
+            "user"
+            if message["role"] == "user"
+            else "model"
+        )
 
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=contents,
-                    config=types.GenerateContentConfig(
-                        system_instruction=SYSTEM_INSTRUCTION,
-                        temperature=0.7
+        contents.append(
+            types.Content(
+                role=role,
+                parts=[
+                    types.Part(text=message["content"])
+                ]
+            )
+        )
+
+    return contents
+
+
+# ==========================================
+# FAST STREAMING + AUTOMATIC FALLBACK
+# ==========================================
+
+def generate_stream(contents, output_placeholder):
+
+    errors = []
+
+    for model_name in MODELS:
+
+        answer_parts = []
+
+        try:
+
+            config = types.GenerateContentConfig(
+                system_instruction=SYSTEM_INSTRUCTION
+            )
+
+            stream = client.models.generate_content_stream(
+                model=model_name,
+                contents=contents,
+                config=config
+            )
+
+            for chunk in stream:
+
+                chunk_text = chunk.text
+
+                if chunk_text:
+
+                    answer_parts.append(chunk_text)
+
+                    # Display text immediately.
+                    output_placeholder.markdown(
+                        "".join(answer_parts)
                     )
+
+            answer = "".join(answer_parts)
+
+            if not answer.strip():
+                raise RuntimeError(
+                    "Model returned an empty response."
                 )
 
-                answer = response.text
+            st.session_state.last_model = model_name
 
-                if not answer:
-                    raise RuntimeError(
-                        "The model returned an empty response."
-                    )
+            return answer, model_name, None
 
-                return answer, model_name
+        except Exception as error:
 
-            except Exception as error:
+            errors.append(
+                f"{model_name}: {error}"
+            )
 
-                last_error = error
+            # Never retry an invalid API key.
+            if is_auth_error(error):
+                raise error
 
-                # Do not retry invalid credentials.
-                if is_auth_error(error):
-                    raise error
+            # If generation has already started,
+            # keep the partial answer instead of
+            # generating duplicate text with another model.
+            if answer_parts:
 
-                # Retry temporary errors with a short delay.
-                if (
-                    is_temporary_error(error)
-                    and attempt + 1 < max_attempts
-                ):
-                    time.sleep(2 ** (attempt + 1))
-                    continue
+                partial_answer = "".join(answer_parts)
 
-                # Move to the next model.
-                break
+                return (
+                    partial_answer,
+                    model_name,
+                    "Generation stopped before completion: "
+                    + str(error)
+                )
+
+            # Switch immediately to the next model.
+            output_placeholder.empty()
+
+            continue
 
     raise RuntimeError(
-        "All Gemini models failed. "
-        "Please try again later. "
-        f"Last error: {last_error}"
+        "All available Gemini models failed.\n\n"
+        + "\n".join(errors)
     )
 
 
@@ -214,7 +296,7 @@ def generate_ai_response(contents):
 st.title("🤖 FAHIM AI")
 
 st.caption(
-    "Advanced AI Assistant | Powered by Google Gemini"
+    "Advanced AI Assistant | Fast Streaming | Google Gemini"
 )
 
 st.divider()
@@ -227,25 +309,35 @@ with st.sidebar:
 
     st.title("⚙️ Settings")
 
-    st.success("Gemini API client initialized")
+    st.success("Gemini API connected")
 
-    st.write("**Primary model:**")
+    st.write("**Primary model**")
     st.code(PRIMARY_MODEL)
 
-    st.write("**Backup models:**")
+    st.write("**Backup models**")
 
-    for backup in BACKUP_MODELS:
-        st.caption(f"• {backup}")
+    for model in BACKUP_MODELS:
+        st.caption(f"• {model}")
+
+    st.divider()
 
     st.write(
-        f"**Messages:** {len(st.session_state.messages)}"
+        f"**Total messages:** "
+        f"{len(st.session_state.messages)}"
+    )
+
+    st.write(
+        f"**Current model:** "
+        f"{st.session_state.last_model}"
     )
 
     if st.button(
         "🗑️ Clear conversation",
         use_container_width=True
     ):
+
         st.session_state.messages = []
+
         st.rerun()
 
     st.divider()
@@ -253,15 +345,16 @@ with st.sidebar:
     st.markdown("""
     ### Features
 
-    - Advanced AI Chat
+    - Fast streaming responses
     - Bengali and English
-    - Programming assistance
+    - Advanced AI assistance
+    - Programming and coding
     - Business support
-    - Creative writing
-    - Technical explanations
-    - Conversation history
-    - Automatic retry
-    - Backup model switching
+    - Creative design assistance
+    - Conversation memory
+    - Smart history optimization
+    - Automatic model fallback
+    - Error recovery
     """)
 
     st.divider()
@@ -300,62 +393,51 @@ if user_prompt:
     with st.chat_message("user"):
         st.markdown(user_prompt)
 
-    # Prepare conversation history.
-    api_history = []
-
-    for message in st.session_state.messages:
-
-        api_role = (
-            "user"
-            if message["role"] == "user"
-            else "model"
-        )
-
-        api_history.append(
-            types.Content(
-                role=api_role,
-                parts=[
-                    types.Part(text=message["content"])
-                ]
-            )
-        )
+    # Prepare only recent conversation context.
+    api_history = prepare_history(
+        st.session_state.messages
+    )
 
     with st.chat_message("assistant"):
 
-        with st.spinner(
-            "Fahim AI is thinking..."
-        ):
+        output_placeholder = st.empty()
 
-            try:
+        try:
 
-                answer, used_model = generate_ai_response(
-                    api_history
+            answer, used_model, stream_error = generate_stream(
+                api_history,
+                output_placeholder
+            )
+
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": answer
+            })
+
+            if used_model != PRIMARY_MODEL:
+
+                st.info(
+                    f"Backup model used: {used_model}"
                 )
 
-                st.markdown(answer)
+            if stream_error:
 
-                if used_model != PRIMARY_MODEL:
-                    st.info(
-                        f"Backup model used: {used_model}"
-                    )
+                st.warning(stream_error)
 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": answer
-                })
+        except Exception as error:
 
-            except Exception as error:
+            output_placeholder.empty()
 
-                st.error(
-                    "Fahim AI could not generate a response. "
-                    "Please try again later."
-                )
+            st.error(
+                "Fahim AI could not generate a response. "
+                "Please try again."
+            )
 
-                with st.expander("Technical error details"):
-                    st.code(str(error))
+            with st.expander("Technical error details"):
+                st.code(str(error))
 
-                # Remove failed user message.
-                st.session_state.messages.pop()
+            # Remove failed user message.
+            st.session_state.messages.pop()
 
 # ==========================================
 # FOOTER
