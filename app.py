@@ -1,3 +1,4 @@
+
 import streamlit as st
 import torch
 import json
@@ -9,12 +10,13 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 # ==========================================
 
 st.set_page_config(
-    page_title="Fahim Custom AI Agent Builder",
+    page_title="Fahim Custom AI Agent Builder Pro",
     page_icon="🤖",
     layout="wide"
 )
 
 MODEL_NAME = "google/flan-t5-small"
+
 
 # ==========================================
 # 2. LOAD AI MODEL
@@ -51,27 +53,26 @@ def generate_response(
     tokenizer, model = load_model()
 
     prompt = f"""
-You are {assistant_name}, a helpful {assistant_role}.
+You are {assistant_name}.
+Your job is {assistant_role}.
 
 USER PROFILE:
 {profile[:1200]}
 
-TASK:
-Answer the following user question.
-
-QUESTION:
+USER QUESTION:
 {question[:500]}
 
-REQUIREMENTS:
+INSTRUCTIONS:
+Answer the question directly.
 Write in {language}.
 Use a {tone} tone.
 {instructions[:300]}
 
-Give a direct, useful and natural answer.
-Do not repeat the question.
-Do not repeat instructions.
-Do not invent facts.
+Do not repeat the instructions.
+Do not repeat sentences.
+Do not invent personal facts.
 If information is unavailable, say so.
+Write a useful and natural answer.
 
 ANSWER:
 """
@@ -103,7 +104,7 @@ ANSWER:
 
         return (
             "I couldn't generate a useful answer. "
-            "Please try asking your question differently."
+            "Please try asking another question."
         )
 
     return answer
@@ -114,9 +115,11 @@ ANSWER:
 # ==========================================
 
 if "messages" not in st.session_state:
+
     st.session_state.messages = []
 
 if "assistant_created" not in st.session_state:
+
     st.session_state.assistant_created = False
 
 
@@ -124,12 +127,13 @@ if "assistant_created" not in st.session_state:
 # 5. HEADER
 # ==========================================
 
-st.title("🤖 FAHIM CUSTOM AI AGENT BUILDER")
+st.title("🤖 FAHIM CUSTOM AI AGENT BUILDER PRO")
 
 st.markdown(
     """
-    Create your personal AI assistant using your profile,
-    business information and custom instructions.
+    Create your personal AI assistant using your
+    personal profile, business information and
+    custom instructions.
     """
 )
 
@@ -137,7 +141,7 @@ st.divider()
 
 
 # ==========================================
-# 6. SIDEBAR CONFIGURATION
+# 6. SIDEBAR SETTINGS
 # ==========================================
 
 with st.sidebar:
@@ -182,9 +186,9 @@ with st.sidebar:
         "Your Personal Profile",
         height=250,
         placeholder=(
-            "Paste your personal information, "
-            "education, experience, skills, "
-            "business details and portfolio links."
+            "Paste your personal information, education, "
+            "experience, skills, business details and "
+            "portfolio links here."
         )
     )
 
@@ -204,12 +208,10 @@ with st.sidebar:
         height=150
     )
 
-    create_button = st.button(
+    if st.button(
         "🚀 Create My AI Assistant",
         use_container_width=True
-    )
-
-    if create_button:
+    ):
 
         if not profile.strip():
 
@@ -225,6 +227,8 @@ with st.sidebar:
             st.success(
                 "Your AI assistant is ready!"
             )
+
+    st.divider()
 
     if st.button(
         "🗑️ Clear Conversation",
@@ -271,7 +275,7 @@ else:
 
     if user_question:
 
-        # Display user message
+        # Save user message
 
         st.session_state.messages.append(
             {
@@ -331,7 +335,7 @@ st.subheader("📥 Export Your Conversation")
 if st.session_state.messages:
 
     conversation_text = (
-        "FAHIM CUSTOM AI AGENT BUILDER\n"
+        "FAHIM CUSTOM AI AGENT BUILDER PRO\n"
         f"Assistant: {assistant_name}\n"
         f"Exported: {datetime.now().isoformat()}\n"
         "====================================\n\n"
@@ -366,8 +370,12 @@ if st.session_state.messages:
         mime="application/json"
     )
 
-    else:
-        st.caption("Your conversation will appear here after chatting.")
+else:
+
+    st.caption(
+        "Your conversation will appear here after chatting."
+    )
+
 
 # ==========================================
 # 9. FOOTER
