@@ -366,9 +366,10 @@ if st.session_state.messages:
         mime="application/json"
     )
 
-else:
+    else:
+        st.caption("Your conversation will appear here after chatting.")
 
-    # ==========================================
+# ==========================================
 # 9. FOOTER
 # ==========================================
 
@@ -378,8 +379,7 @@ st.markdown(
     """
     <div style="text-align:center; padding:15px;">
         <strong>FAHIM CUSTOM AI AGENT BUILDER PRO</strong><br>
-        Personal AI Assistant | Powered by Hugging Face<br>
-        🌐 Creative Design. Professional Results.
+        Creative Design. Professional Results.
     </div>
     """,
     unsafe_allow_html=True
