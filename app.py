@@ -1,4 +1,3 @@
-
 # ============================================================
 # FAHIM AI v5.3 - FREE & FAST EDITION
 # NaraRouter Laguna + Gemini + Groq
