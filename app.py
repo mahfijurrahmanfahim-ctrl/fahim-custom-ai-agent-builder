@@ -73,7 +73,7 @@ st.set_page_config(
 # ================================================================
 
 APP_NAME = "FAHIM AI"
-APP_VERSION = "6.0"
+APP_VERSION = "6.1"
 
 NARA_BASE_URL = "https://router.bynara.id/v1"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
@@ -1509,18 +1509,129 @@ def test_gemini_connection():
 
 
 # ================================================================
+# PREMIUM INTERFACE STYLING
+# ================================================================
+
+st.markdown(
+    """
+    <style>
+    :root {
+        --fahim-accent: #a78bfa;
+        --fahim-accent-2: #60a5fa;
+        --fahim-surface: rgba(255,255,255,0.045);
+        --fahim-border: rgba(148,163,184,0.18);
+    }
+    .stApp {
+        background:
+            radial-gradient(ellipse at 12% 0%, rgba(99,102,241,.13), transparent 34%),
+            radial-gradient(ellipse at 88% 8%, rgba(14,165,233,.09), transparent 30%);
+    }
+    [data-testid="stHeader"] {
+        background: rgba(8, 12, 25, .72);
+        backdrop-filter: blur(14px);
+    }
+    [data-testid="stSidebar"] {
+        border-right: 1px solid var(--fahim-border);
+        background: rgba(9, 14, 29, .92);
+    }
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 1.25rem;
+    }
+    .block-container {
+        max-width: 1120px;
+        padding-top: 2.1rem;
+        padding-bottom: 3rem;
+    }
+    .fahim-brand {
+        display:flex; align-items:center; gap:12px;
+        padding: 12px 4px 18px;
+    }
+    .fahim-brand-icon {
+        width:44px; height:44px; border-radius:15px;
+        display:grid; place-items:center; font-size:23px;
+        color:white;
+        background:linear-gradient(135deg,#7c3aed,#2563eb);
+        box-shadow:0 8px 28px rgba(99,102,241,.28);
+    }
+    .fahim-brand-name {font-size:20px;font-weight:800;letter-spacing:.4px;}
+    .fahim-brand-sub {font-size:11px;opacity:.62;margin-top:2px;}
+    .fahim-hero {
+        position:relative; overflow:hidden;
+        padding:25px 28px; border-radius:22px;
+        border:1px solid rgba(167,139,250,.25);
+        background:linear-gradient(115deg,rgba(91,33,182,.24),rgba(30,64,175,.16) 55%,rgba(14,165,233,.10));
+        box-shadow:0 16px 50px rgba(0,0,0,.12);
+        margin-bottom:18px;
+    }
+    .fahim-hero:after {
+        content:""; position:absolute; width:230px;height:230px;
+        right:-85px;top:-135px;border-radius:50%;
+        background:rgba(129,140,248,.16);filter:blur(8px);
+    }
+    .fahim-kicker {
+        font-size:11px;letter-spacing:2px;text-transform:uppercase;
+        color:#c4b5fd;font-weight:800;margin-bottom:8px;
+    }
+    .fahim-hero h1 {font-size:clamp(28px,4vw,40px);line-height:1.1;margin:0 0 9px;font-weight:850;}
+    .fahim-hero p {font-size:14px;opacity:.76;margin:0;max-width:650px;}
+    div[data-testid="stChatMessage"] {
+        border:1px solid var(--fahim-border);
+        border-radius:18px; padding:14px 16px;
+        background:var(--fahim-surface); margin-bottom:12px;
+    }
+    [data-testid="stChatInput"] {
+        border:1px solid rgba(167,139,250,.38);
+        border-radius:18px;
+        box-shadow:0 8px 28px rgba(0,0,0,.10);
+    }
+    [data-testid="stFileUploader"] section {
+        border:1px dashed rgba(167,139,250,.4);
+        border-radius:16px; background:rgba(139,92,246,.045);
+    }
+    .stButton > button {
+        border-radius:12px; font-weight:650;
+        transition:all .18s ease;
+    }
+    .stButton > button:hover {
+        border-color:#a78bfa; transform:translateY(-1px);
+        box-shadow:0 5px 18px rgba(124,58,237,.14);
+    }
+    [data-testid="stMetric"] {
+        border:1px solid var(--fahim-border);
+        padding:12px 14px; border-radius:14px;
+        background:var(--fahim-surface);
+    }
+    @media (max-width: 700px) {
+        .block-container {padding:1rem .8rem 2rem;}
+        .fahim-hero {padding:20px 18px;border-radius:17px;}
+        div[data-testid="stChatMessage"] {padding:11px;border-radius:15px;}
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ================================================================
 # SIDEBAR
 # ================================================================
 
 with st.sidebar:
 
-    st.title("🤖 FAHIM AI")
-
-    st.caption(
-        "Version "
-        + APP_VERSION
-        + " | Hybrid AI Assistant"
+    st.markdown(
+        """
+        <div class="fahim-brand">
+          <div class="fahim-brand-icon">✦</div>
+          <div>
+            <div class="fahim-brand-name">FAHIM AI</div>
+            <div class="fahim-brand-sub">PERSONAL AI WORKSPACE · v6.1</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True
     )
+
+    st.caption("Your multi-model assistant")
 
     st.divider()
 
@@ -1733,15 +1844,27 @@ with st.sidebar:
 # MAIN HEADER
 # ================================================================
 
-st.title("🤖 FAHIM AI")
-
 st.markdown(
     """
-    **Your Hybrid Multi-Provider AI Assistant**
-
-    Text • Images • Audio • Documents • Web Search
-    """
+    <section class="fahim-hero">
+      <div class="fahim-kicker">Your personal AI workspace</div>
+      <h1>Meet your smarter assistant.</h1>
+      <p>One workspace for conversations, research, documents and creative work — powered by your connected AI models.</p>
+    </section>
+    """,
+    unsafe_allow_html=True
 )
+
+status_cols = st.columns(4)
+status_items = [
+    ("AI providers", "Multi-model"),
+    ("Capabilities", "Text + files"),
+    ("Research", "Web search"),
+    ("Workspace", "Private session")
+]
+for column, item in zip(status_cols, status_items):
+    with column:
+        st.metric(item[0], item[1])
 
 if st.session_state.last_provider:
 
