@@ -1,1507 +1,1396 @@
-# ==========================================================
-# FAHIM AI v5.0
-# NARAROUTER HYBRID MULTIMODAL AI ASSISTANT
-# NaraRouter + Gemini + Groq + OpenRouter + Supabase
-#
-# NaraRouter: Primary text AI
-# Gemini: Image and audio processing + text fallback
-# Groq: Text fallback
-# OpenRouter: Text fallback
-# Supabase: Permanent chat history
-#
-# Existing chat history is never automatically deleted.
-# ==========================================================
 
-import mimetypes
+# ============================================================
+# FAHIM AI v5.1
+# HYBRID MULTI-PROVIDER MULTIMODAL AI ASSISTANT
+#
+# NaraRouter + Gemini + Groq + OpenRouter
+# Supabase Permanent Chat History
+# Multiple Images / Audio / Documents
+# Image Search
+# Automatic Provider Fallback
+# Streaming Responses
+# Bengali + English
+# ============================================================
+
+import os
+import io
+import json
 import time
 import uuid
-from datetime import datetime
+import mimetypes
+import traceback
+
+from datetime import datetime, timezone
 
 import streamlit as st
+
 from openai import OpenAI
 from google import genai
 from google.genai import types
 from supabase import create_client
 
 
-# ==========================================================
-# 1. APPLICATION CONFIGURATION
-# ==========================================================
+# ============================================================
+# 1. PAGE CONFIGURATION
+# ============================================================
 
 st.set_page_config(
     page_title="FAHIM AI",
     page_icon="🤖",
     layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-APP_NAME = "FAHIM AI"
-APP_VERSION = "5.0"
 
-MAX_CONTEXT_MESSAGES = 12
-REQUEST_TIMEOUT = 90
-MAX_UPLOAD_SIZE = 30 * 1024 * 1024
+# ============================================================
+# 2. APP CONFIGURATION
+# ============================================================
+
+APP_NAME = "FAHIM AI"
+APP_VERSION = "5.1"
 
 NARA_BASE_URL = "https://router.bynara.id/v1"
 
-ALLOWED_IMAGE_TYPES = {
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-}
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 
-ALLOWED_AUDIO_TYPES = {
-    "audio/mpeg",
-    "audio/mp3",
-    "audio/wav",
-    "audio/x-wav",
-    "audio/mp4",
-    "audio/m4a",
-    "audio/x-m4a",
-    "audio/aac",
-    "audio/ogg",
-    "audio/flac",
-    "audio/x-flac",
-}
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
-MIME_ALIASES = {
-    "image/jpg": "image/jpeg",
-    "audio/mp3": "audio/mpeg",
-    "audio/x-wav": "audio/wav",
-    "audio/x-flac": "audio/flac",
-    "audio/m4a": "audio/mp4",
-    "audio/x-m4a": "audio/mp4",
-}
+NARA_DEFAULT_MODEL = "auto/bynara"
+
+GEMINI_DEFAULT_MODEL = "gemini-3.8-flash"
+
+GROQ_DEFAULT_MODEL = "llama-3.3-70b-versatile"
+
+OPENROUTER_DEFAULT_MODEL = "openai/gpt-4o-mini"
+
+MAX_HISTORY_MESSAGES = 30
 
 
-# ==========================================================
-# 2. STREAMLIT SECRETS
-# ==========================================================
+# ============================================================
+# 3. SECRET MANAGEMENT
+# ============================================================
 
-def get_secret(name, default=""):
+def get_secret(name, default=None):
+
     try:
-        return st.secrets.get(name, default)
+        value = st.secrets.get(name, default)
+
+        if value is not None:
+            return value
+
     except Exception:
+        pass
+
+    return os.getenv(name, default)
+
+
+def get_string_secret(name, default=""):
+
+    value = get_secret(name, default)
+
+    if value is None:
         return default
 
+    return str(value).strip()
 
-NARA_API_KEY = get_secret("NARA_API_KEY")
 
-NARA_DEFAULT_MODEL = get_secret(
+NARA_API_KEY = get_string_secret("NARA_API_KEY")
+
+NARA_MODEL = get_string_secret(
     "NARA_MODEL",
-    "auto/bynara",
+    NARA_DEFAULT_MODEL
 )
 
-GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
+GEMINI_API_KEY = get_string_secret("GEMINI_API_KEY")
 
-SUPABASE_URL = get_secret("SUPABASE_URL")
+GROQ_API_KEY = get_string_secret("GROQ_API_KEY")
+
+OPENROUTER_API_KEY = get_string_secret("OPENROUTER_API_KEY")
+
+SUPABASE_URL = get_string_secret("SUPABASE_URL")
 
 SUPABASE_KEY = (
-    get_secret("SUPABASE_SECRET_KEY")
-    or get_secret("SUPABASE_KEY")
+    get_string_secret("SUPABASE_SECRET_KEY")
+    or get_string_secret("SUPABASE_KEY")
 )
 
-GROQ_API_KEY = get_secret("GROQ_API_KEY")
-
-OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY")
-
-PRIMARY_MODEL = get_secret(
+PRIMARY_MODEL = get_string_secret(
     "PRIMARY_MODEL",
-    "gemini-2.5-flash",
+    GEMINI_DEFAULT_MODEL
 )
 
-BACKUP_MODELS = get_secret(
-    "BACKUP_MODELS",
-    ["gemini-2.5-flash"],
-)
-
-if isinstance(BACKUP_MODELS, str):
-    BACKUP_MODELS = [
-        item.strip()
-        for item in BACKUP_MODELS.split(",")
-        if item.strip()
-    ]
-
-GROQ_MODEL = get_secret(
+GROQ_MODEL = get_string_secret(
     "GROQ_MODEL",
-    "llama-3.3-70b-versatile",
+    GROQ_DEFAULT_MODEL
 )
 
-OPENROUTER_MODEL = get_secret(
+OPENROUTER_MODEL = get_string_secret(
     "OPENROUTER_MODEL",
-    "openrouter/free",
+    OPENROUTER_DEFAULT_MODEL
 )
 
 
-# NaraRouter is required for this version.
-if not NARA_API_KEY:
-    st.error("NARA_API_KEY is missing from Streamlit Secrets.")
-    st.info("Add your existing NaraRouter API key to Streamlit Secrets.")
-    st.stop()
+def get_backup_models():
 
-
-# ==========================================================
-# 3. FAHIM AI IDENTITY
-# ==========================================================
-
-FAHIM_AI_IDENTITY = """
-You are FAHIM AI, a hybrid multimodal AI assistant.
-
-CREATOR:
-Your creator is Fahim.
-
-IDENTITY:
-- Your name is FAHIM AI.
-- Never identify yourself as another assistant.
-- Your identity remains FAHIM AI regardless of provider.
-- You operate using multiple AI providers.
-
-BEHAVIOUR:
-- Understand Bengali and English.
-- Follow the user's requested language.
-- Analyse images and audio when supported.
-- Never invent facts, sources or links.
-- Provide useful explanations and working code.
-- Be professional, intelligent and helpful.
-
-PROVIDER TRANSPARENCY:
-- Identify the active provider using runtime information.
-- Never guess the underlying model.
-- Distinguish configured providers from active providers.
-- Explain uncertainty about model aliases.
-"""
-
-SYSTEM_INSTRUCTION = """
-CORE RESPONSIBILITIES:
-
-1. Give accurate and useful answers.
-2. Understand Bengali and English.
-3. Follow the requested language.
-4. Answer directly.
-5. Never invent facts or links.
-6. Explain uncertainty honestly.
-7. Help with programming, AI, business,
-   graphic design, writing and education.
-8. Provide complete code when requested.
-9. Use available conversation history.
-10. Avoid unnecessary repetition.
-11. Explain technical instructions step by step.
-12. Never claim actions you did not perform.
-13. Analyse uploaded media when supported.
-
-RESPONSE STYLE:
-Professional, intelligent, clear and helpful.
-"""
-
-def build_runtime_instruction(provider, model):
-    return (
-        FAHIM_AI_IDENTITY
-        + SYSTEM_INSTRUCTION
-        + f"""
-
-RUNTIME INFORMATION:
-
-Application: {APP_NAME}
-Version: {APP_VERSION}
-Creator: Fahim
-
-Active provider: {provider}
-Requested model: {model}
-
-These values describe this request.
-Never guess technical information.
-"""
+    models = get_secret(
+        "BACKUP_MODELS",
+        ["gemini-3.7-flash", "gemini-3.6-flash"]
     )
 
+    if isinstance(models, str):
 
-# ==========================================================
-# 4. API CLIENTS
-# ==========================================================
-
-@st.cache_resource(show_spinner=False)
-def get_nara_client(api_key):
-    return OpenAI(
-        api_key=api_key,
-        base_url=NARA_BASE_URL,
-        timeout=REQUEST_TIMEOUT,
-        max_retries=0,
-    )
-
-
-@st.cache_resource(show_spinner=False)
-def get_gemini_client(api_key):
-    return genai.Client(api_key=api_key)
-
-
-@st.cache_resource(show_spinner=False)
-def get_supabase_client(url, key):
-    return create_client(url, key)
-
-
-nara_client = get_nara_client(NARA_API_KEY)
-
-gemini_client = (
-    get_gemini_client(GEMINI_API_KEY)
-    if GEMINI_API_KEY else None
-)
-
-supabase = None
-
-if SUPABASE_URL and SUPABASE_KEY:
-    try:
-        supabase = get_supabase_client(
-            SUPABASE_URL,
-            SUPABASE_KEY,
-        )
-    except Exception as error:
-        st.warning(f"Supabase initialization failed: {error}")
-
-
-# ==========================================================
-# 5. NARAROUTER MODEL DISCOVERY
-# ==========================================================
-
-@st.cache_data(ttl=300, show_spinner=False)
-def discover_nara_models(api_key):
-    """
-    Retrieve models available to this API key.
-    Uses the authenticated NaraRouter /v1/models endpoint.
-    """
-
-    try:
-        client = OpenAI(
-            api_key=api_key,
-            base_url=NARA_BASE_URL,
-            timeout=20,
-            max_retries=0,
-        )
-
-        response = client.models.list()
-
-        model_ids = []
-
-        for item in response.data:
-            model_id = getattr(item, "id", None)
-
-            if model_id:
-                model_ids.append(str(model_id))
-
-        return sorted(set(model_ids)), None
-
-    except Exception as error:
-        return [], str(error)
-
-
-nara_models, nara_models_error = discover_nara_models(
-    NARA_API_KEY
-)
-
-# Keep the configured default available as a routing option.
-model_options = list(nara_models)
-
-if NARA_DEFAULT_MODEL not in model_options:
-    model_options.insert(0, NARA_DEFAULT_MODEL)
-
-if not model_options:
-    model_options = ["auto/bynara"]
-
-
-# ==========================================================
-# 6. SESSION MANAGEMENT
-# ==========================================================
-
-def get_session_id():
-    existing_id = st.query_params.get("sid")
-
-    if existing_id:
         try:
-            return str(uuid.UUID(existing_id))
-        except (ValueError, TypeError):
-            pass
+            models = json.loads(models)
+        except Exception:
+            models = [
+                x.strip()
+                for x in models.split(",")
+                if x.strip()
+            ]
 
-    new_id = str(uuid.uuid4())
-    st.query_params["sid"] = new_id
-
-    return new_id
-
-
-SESSION_ID = get_session_id()
-
-SESSION_DEFAULTS = {
-    "messages": [],
-    "history_loaded": False,
-    "last_model": "Not used yet",
-    "last_provider": "Not used yet",
-    "request_count": 0,
-    "last_error": None,
-    "fallback_events": [],
-    "upload_widget_version": 0,
-}
-
-for key, value in SESSION_DEFAULTS.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-
-# ==========================================================
-# 7. SUPABASE PERMANENT CHAT HISTORY
-# ==========================================================
-
-def load_chat_history():
-    if supabase is None:
+    if not isinstance(models, list):
         return []
 
-    result = (
-        supabase
-        .table("chat_history")
-        .select("role, content")
-        .eq("session_id", SESSION_ID)
-        .order("created_at")
-        .execute()
-    )
-
-    return result.data or []
+    return [str(x).strip() for x in models if str(x).strip()]
 
 
-def save_message(role, content):
-    if supabase is None:
-        return False
+BACKUP_MODELS = get_backup_models()
+
+
+# ============================================================
+# 4. SESSION STATE
+# ============================================================
+
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "history_loaded" not in st.session_state:
+    st.session_state.history_loaded = False
+
+if "active_provider" not in st.session_state:
+    st.session_state.active_provider = "Not connected"
+
+if "active_model" not in st.session_state:
+    st.session_state.active_model = "None"
+
+if "fallback_count" not in st.session_state:
+    st.session_state.fallback_count = 0
+
+if "request_count" not in st.session_state:
+    st.session_state.request_count = 0
+
+if "last_error" not in st.session_state:
+    st.session_state.last_error = None
+
+if "nara_models" not in st.session_state:
+    st.session_state.nara_models = []
+
+if "nara_discovery_error" not in st.session_state:
+    st.session_state.nara_discovery_error = None
+
+if "selected_nara_model" not in st.session_state:
+    st.session_state.selected_nara_model = NARA_MODEL
+
+
+# ============================================================
+# 5. SYSTEM INSTRUCTIONS
+# ============================================================
+
+SYSTEM_PROMPT = """
+You are FAHIM AI, an advanced hybrid multimodal AI assistant.
+
+Your creator is Fahim.
+
+You support:
+- English
+- Bengali
+- Text conversations
+- Image understanding
+- Audio understanding
+- Document understanding
+- Web and image search when tools are available
+- Coding and technical assistance
+
+IMPORTANT RULES:
+
+1. Never invent technical information.
+2. Never pretend a provider is active without evidence.
+3. Distinguish configured providers from the provider
+   actually handling the current request.
+4. Do not claim to have searched the internet unless
+   a search tool actually returned results.
+5. Do not invent image search results.
+6. Preserve conversation context.
+7. Give complete code when requested.
+8. Answer in the user's language.
+9. Be concise when the user asks simple questions.
+
+The application provides runtime provider information.
+Use it rather than guessing.
+"""
+
+
+# ============================================================
+# 6. SUPABASE CONNECTION
+# ============================================================
+
+@st.cache_resource(show_spinner=False)
+def get_supabase():
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
 
     try:
-        supabase.table("chat_history").insert({
-            "session_id": SESSION_ID,
-            "role": role,
-            "content": content,
-        }).execute()
+        return create_client(
+            SUPABASE_URL,
+            SUPABASE_KEY
+        )
 
-        return True
-
-    except Exception as error:
-        st.error(f"Message saving failed: {error}")
-        return False
+    except Exception as e:
+        st.session_state.last_error = str(e)
+        return None
 
 
-def delete_chat_history():
+supabase = get_supabase()
+
+
+# ============================================================
+# 7. PERMANENT CHAT HISTORY
+# ============================================================
+
+def load_chat_history():
+
+    if st.session_state.history_loaded:
+        return
+
     if supabase is None:
-        return False
+        st.session_state.history_loaded = True
+        return
 
     try:
-        supabase.table("chat_history").delete().eq(
-            "session_id", SESSION_ID
-        ).execute()
 
-        return True
-
-    except Exception as error:
-        st.error(f"History deletion failed: {error}")
-        return False
-
-
-# Restore history only once per Streamlit session.
-if not st.session_state.history_loaded:
-
-    if supabase is not None:
-        try:
-            st.session_state.messages = load_chat_history()
-
-        except Exception as error:
-            st.warning(
-                f"Could not restore permanent history: {error}"
+        response = (
+            supabase
+            .table("chat_history")
+            .select("role, content")
+            .eq(
+                "session_id",
+                st.session_state.session_id
             )
+            .order("created_at", desc=False)
+            .execute()
+        )
+
+        rows = response.data or []
+
+        st.session_state.messages = [
+            {
+                "role": row["role"],
+                "content": row["content"]
+            }
+            for row in rows
+            if row.get("role") in ["user", "assistant"]
+        ]
+
+    except Exception as e:
+
+        st.session_state.last_error = (
+            "Supabase history loading error: " + str(e)
+        )
 
     st.session_state.history_loaded = True
 
 
-# ==========================================================
-# 8. ERROR CLASSIFICATION
-# ==========================================================
+def save_message(role, content):
 
-def is_quota_error(error):
-    message = str(error).upper()
+    if supabase is None:
+        return False
 
-    return any(term in message for term in (
-        "429",
-        "RESOURCE_EXHAUSTED",
-        "QUOTA_EXCEEDED",
-        "RATE_LIMIT",
-        "INSUFFICIENT_QUOTA",
-    ))
+    try:
 
+        supabase.table("chat_history").insert({
 
-def is_auth_error(error):
-    message = str(error).upper()
+            "session_id": st.session_state.session_id,
 
-    return any(term in message for term in (
-        "401",
-        "403",
-        "UNAUTHENTICATED",
-        "PERMISSION_DENIED",
-        "INVALID API KEY",
-        "API_KEY_INVALID",
-    ))
+            "role": role,
 
+            "content": str(content),
 
-# ==========================================================
-# 9. CONVERSATION HISTORY
-# ==========================================================
+        }).execute()
 
-def prepare_history(messages):
-    recent = messages[-MAX_CONTEXT_MESSAGES:]
+        return True
 
-    while recent and recent[0].get("role") != "user":
-        recent = recent[1:]
+    except Exception as e:
 
-    contents = []
-
-    for message in recent:
-
-        role = (
-            "user"
-            if message.get("role") == "user"
-            else "model"
+        st.session_state.last_error = (
+            "Supabase save error: " + str(e)
         )
 
-        content_text = message.get("content", "")
+        return False
 
-        if not isinstance(content_text, str):
-            content_text = str(content_text)
 
-        contents.append(
-            types.Content(
-                role=role,
-                parts=[
-                    types.Part(text=content_text)
-                ],
-            )
+def clear_chat_history():
+
+    if supabase is not None:
+
+        try:
+
+            supabase.table("chat_history").delete().eq(
+                "session_id",
+                st.session_state.session_id
+            ).execute()
+
+        except Exception as e:
+
+            st.error(f"History deletion failed: {e}")
+            return
+
+    st.session_state.messages = []
+
+    st.session_state.history_loaded = True
+
+    st.rerun()
+
+
+load_chat_history()
+
+
+# ============================================================
+# 8. PROVIDER CLIENTS
+# ============================================================
+
+def get_nara_client():
+
+    if not NARA_API_KEY:
+        raise RuntimeError("NARA_API_KEY is missing.")
+
+    return OpenAI(
+        api_key=NARA_API_KEY,
+        base_url=NARA_BASE_URL,
+        timeout=90,
+        max_retries=1
+    )
+
+
+def get_groq_client():
+
+    if not GROQ_API_KEY:
+        raise RuntimeError("GROQ_API_KEY is missing.")
+
+    return OpenAI(
+        api_key=GROQ_API_KEY,
+        base_url=GROQ_BASE_URL,
+        timeout=90
+    )
+
+
+def get_openrouter_client():
+
+    if not OPENROUTER_API_KEY:
+        raise RuntimeError("OPENROUTER_API_KEY is missing.")
+
+    return OpenAI(
+        api_key=OPENROUTER_API_KEY,
+        base_url=OPENROUTER_BASE_URL,
+        timeout=90
+    )
+
+
+def get_gemini_client():
+
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is missing.")
+
+    return genai.Client(
+        api_key=GEMINI_API_KEY
+    )
+
+
+# ============================================================
+# 9. NARAROUTER MODEL DISCOVERY
+# ============================================================
+
+def discover_nara_models():
+
+    if not NARA_API_KEY:
+
+        st.session_state.nara_discovery_error = (
+            "NARA_API_KEY is missing."
         )
 
-    return contents
+        return []
+
+    try:
+
+        client = get_nara_client()
+
+        response = client.models.list()
+
+        models = []
+
+        for model in response.data:
+
+            model_id = getattr(model, "id", None)
+
+            if model_id:
+                models.append(model_id)
+
+        st.session_state.nara_models = models
+
+        st.session_state.nara_discovery_error = None
+
+        return models
+
+    except Exception as e:
+
+        st.session_state.nara_discovery_error = str(e)
+
+        # IMPORTANT:
+        # Model discovery failure does not disable
+        # the configured NaraRouter model.
+
+        st.session_state.nara_models = []
+
+        return []
 
 
-def prepare_openai_history(contents, runtime_instruction):
+# ============================================================
+# 10. CONVERSATION HISTORY FORMATTING
+# ============================================================
 
-    messages = [{
-        "role": "system",
-        "content": runtime_instruction,
-    }]
+def get_conversation():
 
-    for item in contents:
+    messages = []
 
-        role = (
-            "user"
-            if item.role == "user"
-            else "assistant"
-        )
+    recent = st.session_state.messages[-MAX_HISTORY_MESSAGES:]
 
-        text_content = "\n".join(
-            part.text
-            for part in (item.parts or [])
-            if getattr(part, "text", None)
-        )
+    for item in recent:
 
-        if text_content:
+        role = item.get("role")
+
+        content = item.get("content", "")
+
+        if role in ["user", "assistant"]:
+
             messages.append({
                 "role": role,
-                "content": text_content,
+                "content": content
             })
 
     return messages
 
 
-# ==========================================================
-# 10. MULTIMODAL FILE PROCESSOR
-# ==========================================================
+def build_openai_messages(user_text):
 
-def get_file_mime_type(uploaded_file):
+    messages = [
+        {
+            "role": "system",
+            "content": SYSTEM_PROMPT
+        }
+    ]
 
-    mime_type = (
-        uploaded_file.type or ""
-    ).lower().strip()
+    messages.extend(get_conversation())
 
-    if not mime_type or mime_type == "application/octet-stream":
+    messages.append({
+        "role": "user",
+        "content": user_text
+    })
 
-        mime_type, _ = mimetypes.guess_type(
-            uploaded_file.name
+    return messages
+
+
+def build_gemini_contents(user_text, attachments=None):
+
+    contents = []
+
+    for item in get_conversation():
+
+        contents.append({
+            "role": (
+                "model"
+                if item["role"] == "assistant"
+                else "user"
+            ),
+            "parts": [
+                {
+                    "text": item["content"]
+                }
+            ]
+        })
+
+    parts = [
+        types.Part.from_text(
+            text=SYSTEM_PROMPT
         )
+    ]
 
-    mime_type = (mime_type or "").lower().strip()
-
-    return MIME_ALIASES.get(mime_type, mime_type)
-
-
-def attach_media_to_history(contents, files):
-
-    if not files:
-        return contents
-
-    if gemini_client is None:
-        raise ValueError(
-            "Gemini API key is missing. "
-            "Image and audio analysis requires Gemini."
+    parts.append(
+        types.Part.from_text(
+            text=user_text
         )
+    )
 
-    if not contents:
-        raise ValueError("No user message found.")
+    if attachments:
 
-    file_payloads = []
-    total_size = 0
+        for uploaded_file in attachments:
 
-    for uploaded_file in files:
+            file_bytes = uploaded_file.getvalue()
 
-        data = uploaded_file.getvalue()
-
-        mime_type = get_file_mime_type(uploaded_file)
-
-        if not data:
-            raise ValueError(
-                f"Empty file: {uploaded_file.name}"
+            mime_type = (
+                uploaded_file.type
+                or mimetypes.guess_type(
+                    uploaded_file.name
+                )[0]
+                or "application/octet-stream"
             )
 
-        total_size += len(data)
-
-        if mime_type not in (
-            ALLOWED_IMAGE_TYPES | ALLOWED_AUDIO_TYPES
-        ):
-            raise ValueError(
-                f"Unsupported file: {uploaded_file.name}"
-            )
-
-        file_payloads.append(
-            (uploaded_file.name, data, mime_type)
-        )
-
-    if total_size > MAX_UPLOAD_SIZE:
-        raise ValueError(
-            "Total upload size exceeds 30 MB."
-        )
-
-    media_parts = []
-
-    for filename, data, mime_type in file_payloads:
-
-        try:
-            media_parts.append(
+            parts.append(
                 types.Part.from_bytes(
-                    data=data,
-                    mime_type=mime_type,
+                    data=file_bytes,
+                    mime_type=mime_type
                 )
             )
 
-        except Exception as error:
-            raise ValueError(
-                f"Could not prepare {filename}: {error}"
-            ) from error
-
-    last_message = contents[-1]
-
-    if last_message.role != "user":
-        raise ValueError(
-            "Attachments must belong to the latest user message."
-        )
-
-    contents[-1] = types.Content(
-        role="user",
-        parts=list(last_message.parts or []) + media_parts,
-    )
+    contents.append({
+        "role": "user",
+        "parts": parts
+    })
 
     return contents
 
 
-# ==========================================================
-# 11. PROVIDER CONFIGURATION
-# ==========================================================
+# ============================================================
+# 11. GEMINI GENERATION
+# ============================================================
 
-def get_providers(selected_nara_model):
+def generate_gemini(user_text, attachments=None):
 
-    providers = []
+    client = get_gemini_client()
 
-    # PRIMARY TEXT PROVIDER: NARAROUTER
-    providers.append({
-        "name": "NaraRouter",
-        "type": "openai",
-        "model": selected_nara_model,
-        "key": NARA_API_KEY,
-        "url": NARA_BASE_URL,
-        "tier": "Primary",
-    })
+    models = []
 
-    # GEMINI TEXT AND MULTIMODAL BACKUP
-    if GEMINI_API_KEY:
+    if PRIMARY_MODEL:
+        models.append(PRIMARY_MODEL)
 
-        providers.append({
-            "name": "Google Gemini",
-            "type": "gemini",
-            "model": PRIMARY_MODEL,
-            "tier": "Backup",
-        })
+    for model in BACKUP_MODELS:
 
-        for model in BACKUP_MODELS:
+        if model not in models:
+            models.append(model)
 
-            if model != PRIMARY_MODEL:
+    last_error = None
 
-                providers.append({
-                    "name": "Google Gemini",
-                    "type": "gemini",
-                    "model": model,
-                    "tier": "Backup",
-                })
-
-    # GROQ FALLBACK
-    if GROQ_API_KEY:
-
-        providers.append({
-            "name": "Groq",
-            "type": "openai",
-            "model": GROQ_MODEL,
-            "key": GROQ_API_KEY,
-            "url": "https://api.groq.com/openai/v1",
-            "tier": "Fallback",
-        })
-
-    # OPENROUTER FALLBACK
-    if OPENROUTER_API_KEY:
-
-        providers.append({
-            "name": "OpenRouter",
-            "type": "openai",
-            "model": OPENROUTER_MODEL,
-            "key": OPENROUTER_API_KEY,
-            "url": "https://openrouter.ai/api/v1",
-            "tier": "Fallback",
-        })
-
-    return providers
-
-
-# ==========================================================
-# 12. GEMINI STREAMING
-# ==========================================================
-
-def extract_gemini_chunk_text(chunk):
-
-    try:
-        direct_text = chunk.text
-
-        if direct_text:
-            return direct_text
-
-    except Exception:
-        pass
-
-    extracted = []
-
-    try:
-        candidates = chunk.candidates or []
-    except Exception:
-        candidates = []
-
-    for candidate in candidates:
+    for model in models:
 
         try:
-            parts = candidate.content.parts or []
-        except Exception:
-            continue
 
-        for part in parts:
-
-            try:
-                part_text = part.text
-            except Exception:
-                part_text = None
-
-            if part_text:
-                extracted.append(part_text)
-
-    return "".join(extracted)
-
-
-def stream_gemini(
-    provider,
-    contents,
-    placeholder,
-    status,
-):
-
-    model = provider["model"]
-
-    runtime_instruction = build_runtime_instruction(
-        provider["name"],
-        model,
-    )
-
-    config = types.GenerateContentConfig(
-        system_instruction=runtime_instruction,
-        temperature=0.7,
-    )
-
-    status.write(
-        f"Connecting to Gemini model: {model}"
-    )
-
-    stream = gemini_client.models.generate_content_stream(
-        model=model,
-        contents=contents,
-        config=config,
-    )
-
-    parts = []
-    observed_model = None
-    started = time.monotonic()
-
-    for chunk in stream:
-
-        if time.monotonic() - started > REQUEST_TIMEOUT:
-            raise TimeoutError("Gemini response timed out.")
-
-        chunk_model = getattr(
-            chunk,
-            "model_version",
-            None,
-        )
-
-        if chunk_model:
-            observed_model = chunk_model
-
-        chunk_text = extract_gemini_chunk_text(chunk)
-
-        if chunk_text:
-            parts.append(chunk_text)
-
-            placeholder.markdown(
-                "".join(parts) + " ▌"
+            contents = build_gemini_contents(
+                user_text,
+                attachments
             )
 
-    answer = "".join(parts).strip()
+            config = types.GenerateContentConfig(
+                temperature=0.7
+            )
 
-    if not answer:
-        raise RuntimeError(
-            "Gemini returned an empty response."
-        )
+            response_stream = (
+                client.models.generate_content_stream(
+                    model=model,
+                    contents=contents,
+                    config=config
+                )
+            )
 
-    return answer, observed_model or model
+            result = ""
+
+            for chunk in response_stream:
+
+                if chunk.text:
+
+                    result += chunk.text
+
+                    yield {
+                        "type": "token",
+                        "text": chunk.text,
+                        "provider": "Gemini",
+                        "model": model
+                    }
+
+            if not result:
+                raise RuntimeError(
+                    "Gemini returned an empty response."
+                )
+
+            yield {
+                "type": "done",
+                "provider": "Gemini",
+                "model": model
+            }
+
+            return
+
+        except Exception as e:
+
+            last_error = e
+
+            error_text = str(e).lower()
+
+            # Skip remaining Gemini models on quota errors.
+
+            if (
+                "quota" in error_text
+                or "resource_exhausted" in error_text
+                or "429" in error_text
+            ):
+                break
+
+            if (
+                "invalid api key" in error_text
+                or "unauthorized" in error_text
+                or "403" in error_text
+            ):
+                break
+
+    raise RuntimeError(
+        f"All Gemini models failed: {last_error}"
+    )
 
 
-# ==========================================================
-# 13. OPENAI-COMPATIBLE STREAMING
-# NARAROUTER + GROQ + OPENROUTER
-# ==========================================================
+# ============================================================
+# 12. OPENAI-COMPATIBLE STREAMING
+# ============================================================
 
-def stream_openai_compatible(
+def generate_openai_stream(
     provider,
-    contents,
-    placeholder,
+    client,
+    model,
+    messages
 ):
 
-    model = provider["model"]
+    stream = client.chat.completions.create(
 
-    runtime_instruction = build_runtime_instruction(
-        provider["name"],
-        model,
-    )
-
-    ai_client = OpenAI(
-        api_key=provider["key"],
-        base_url=provider["url"],
-        timeout=REQUEST_TIMEOUT,
-        max_retries=0,
-    )
-
-    messages = prepare_openai_history(
-        contents,
-        runtime_instruction,
-    )
-
-    stream = ai_client.chat.completions.create(
         model=model,
+
         messages=messages,
-        stream=True,
+
         temperature=0.7,
+
+        stream=True,
+
     )
 
-    parts = []
-    observed_model = None
-    started = time.monotonic()
+    result = ""
+
+    actual_model = model
 
     for chunk in stream:
 
-        if time.monotonic() - started > REQUEST_TIMEOUT:
-            raise TimeoutError(
-                f"{provider['name']} timed out."
-            )
-
-        chunk_model = getattr(
-            chunk,
-            "model",
-            None,
-        )
-
-        if chunk_model:
-            observed_model = chunk_model
+        if getattr(chunk, "model", None):
+            actual_model = chunk.model
 
         if not chunk.choices:
             continue
 
-        delta_content = chunk.choices[0].delta.content
+        delta = chunk.choices[0].delta
 
-        if isinstance(delta_content, str) and delta_content:
+        content = getattr(delta, "content", None)
 
-            parts.append(delta_content)
+        if isinstance(content, str) and content:
 
-            placeholder.markdown(
-                "".join(parts) + " ▌"
-            )
+            result += content
 
-        elif isinstance(delta_content, list):
+            yield {
+                "type": "token",
+                "text": content,
+                "provider": provider,
+                "model": actual_model
+            }
 
-            for block in delta_content:
+    if not result:
 
-                if isinstance(block, dict):
-                    block_text = block.get("text")
-                else:
-                    block_text = getattr(
-                        block,
-                        "text",
-                        None,
-                    )
-
-                if block_text:
-                    parts.append(block_text)
-
-                    placeholder.markdown(
-                        "".join(parts) + " ▌"
-                    )
-
-    answer = "".join(parts).strip()
-
-    if not answer:
         raise RuntimeError(
-            f"{provider['name']} returned an empty response."
+            f"{provider} returned an empty response."
         )
 
-    return answer, observed_model or model
+    yield {
+        "type": "done",
+        "provider": provider,
+        "model": actual_model
+    }
 
 
-# ==========================================================
-# 14. HYBRID AI ROUTER
-# ==========================================================
+# ============================================================
+# 13. PROVIDER FALLBACK ENGINE
+# ============================================================
 
-def generate_answer(
-    contents,
-    placeholder,
-    status,
-    selected_nara_model,
-    has_media=False,
-):
+def generate_response(user_text, attachments=None):
 
-    providers = get_providers(selected_nara_model)
-
-    # Actual image/audio parts are only sent to Gemini.
-    if has_media:
-
-        providers = [
-            provider
-            for provider in providers
-            if provider["type"] == "gemini"
-        ]
+    st.session_state.request_count += 1
 
     errors = []
 
-    skip_remaining_gemini = False
+    has_media = bool(attachments)
 
-    for provider in providers:
+    # Media requests must go to Gemini because
+    # the other configured providers are text-only here.
 
-        name = provider["name"]
-        model = provider["model"]
-        provider_type = provider["type"]
-
-        if (
-            provider_type == "gemini"
-            and skip_remaining_gemini
-        ):
-            continue
-
-        status.update(
-            label=f"Connecting to {name}...",
-            state="running",
-            expanded=True,
-        )
-
-        status.write(f"Requested model: {model}")
-
-        placeholder.empty()
+    if has_media:
 
         try:
 
-            if provider_type == "gemini":
-
-                answer, actual_model = stream_gemini(
-                    provider,
-                    contents,
-                    placeholder,
-                    status,
-                )
-
-            else:
-
-                answer, actual_model = stream_openai_compatible(
-                    provider,
-                    contents,
-                    placeholder,
-                )
-
-            placeholder.markdown(answer)
-
-            st.session_state.last_model = actual_model
-            st.session_state.last_provider = name
-            st.session_state.last_error = None
-
-            status.update(
-                label=f"Completed: {name}",
-                state="complete",
-                expanded=False,
+            yield from generate_gemini(
+                user_text,
+                attachments
             )
 
-            return (
-                answer,
-                name,
+            return
+
+        except Exception as e:
+
+            raise RuntimeError(
+                "Multimodal Gemini processing failed: "
+                + str(e)
+            )
+
+    messages = build_openai_messages(user_text)
+
+    # --------------------------------------------------------
+    # PROVIDER 1: NARAROUTER
+    # --------------------------------------------------------
+
+    if NARA_API_KEY:
+
+        try:
+
+            client = get_nara_client()
+
+            model = (
+                st.session_state.selected_nara_model
+                or NARA_MODEL
+                or NARA_DEFAULT_MODEL
+            )
+
+            yield from generate_openai_stream(
+                "NaraRouter",
+                client,
                 model,
-                actual_model,
+                messages
             )
 
-        except Exception as error:
+            return
 
-            error_text = str(error)
+        except Exception as e:
 
             errors.append(
-                f"{name} ({model}): {error_text}"
+                "NaraRouter: " + str(e)
             )
 
-            st.session_state.fallback_events.append({
-                "from": name,
-                "model": model,
-                "error": error_text,
-                "time": datetime.now().strftime("%H:%M:%S"),
-            })
+            st.session_state.fallback_count += 1
 
-            placeholder.empty()
+    # --------------------------------------------------------
+    # PROVIDER 2: GEMINI
+    # --------------------------------------------------------
 
-            if (
-                provider_type == "gemini"
-                and is_quota_error(error)
-            ):
-                skip_remaining_gemini = True
+    if GEMINI_API_KEY:
 
-                status.write(
-                    "Gemini quota exceeded. "
-                    "Skipping other Gemini models."
-                )
+        try:
 
-            if is_auth_error(error):
-                status.write(
-                    "Provider authentication error."
-                )
+            yield from generate_gemini(user_text)
 
-            status.write(
-                f"{name} failed. Trying next provider..."
+            return
+
+        except Exception as e:
+
+            errors.append(
+                "Gemini: " + str(e)
             )
 
-    status.update(
-        label="All compatible providers failed.",
-        state="error",
-        expanded=True,
-    )
+            st.session_state.fallback_count += 1
+
+    # --------------------------------------------------------
+    # PROVIDER 3: GROQ
+    # --------------------------------------------------------
+
+    if GROQ_API_KEY:
+
+        try:
+
+            client = get_groq_client()
+
+            yield from generate_openai_stream(
+                "Groq",
+                client,
+                GROQ_MODEL,
+                messages
+            )
+
+            return
+
+        except Exception as e:
+
+            errors.append(
+                "Groq: " + str(e)
+            )
+
+            st.session_state.fallback_count += 1
+
+    # --------------------------------------------------------
+    # PROVIDER 4: OPENROUTER
+    # --------------------------------------------------------
+
+    if OPENROUTER_API_KEY:
+
+        try:
+
+            client = get_openrouter_client()
+
+            yield from generate_openai_stream(
+                "OpenRouter",
+                client,
+                OPENROUTER_MODEL,
+                messages
+            )
+
+            return
+
+        except Exception as e:
+
+            errors.append(
+                "OpenRouter: " + str(e)
+            )
+
+            st.session_state.fallback_count += 1
+
+    # --------------------------------------------------------
+    # ALL PROVIDERS FAILED
+    # --------------------------------------------------------
 
     raise RuntimeError(
-        "No AI provider could generate a response:\n\n"
-        + "\n\n".join(errors)
+        "All available AI providers failed.\n\n"
+        + "\n".join(errors)
     )
 
 
-# ==========================================================
-# 15. INTERFACE DESIGN
-# ==========================================================
+# ============================================================
+# 14. IMAGE SEARCH
+# ============================================================
 
-st.markdown("""
-<style>
-.stApp {
-    background: #0b0b0f;
-    color: #ffffff;
-}
+def image_search(query, limit=8):
 
-[data-testid="stChatMessage"] {
-    border: 1px solid #292936;
-    border-radius: 14px;
-    padding: 14px;
-    margin-bottom: 10px;
-}
+    try:
 
-.stChatInput {
-    border-radius: 15px;
-}
+        from ddgs import DDGS
 
-[data-testid="stStatusWidget"] {
-    border: 1px solid #343444;
-    border-radius: 12px;
-}
+        results = DDGS().images(
+            query,
+            max_results=limit
+        )
 
-[data-testid="stSidebar"] {
-    background: #101018;
-}
+        return list(results)
 
-.stButton button {
-    border-radius: 10px;
-}
-</style>
-""", unsafe_allow_html=True)
+    except ImportError:
+
+        st.error(
+            "Image search package missing. "
+            "Add ddgs to requirements.txt."
+        )
+
+        return []
+
+    except Exception as e:
+
+        st.error(
+            f"Image search failed: {e}"
+        )
+
+        return []
 
 
-# ==========================================================
-# 16. SIDEBAR
-# ==========================================================
+# ============================================================
+# 15. SIDEBAR
+# ============================================================
 
 with st.sidebar:
 
-    st.title("⚙️ FAHIM AI Settings")
-
-    st.success("NaraRouter configured")
-
-    if nara_models_error:
-        st.warning(
-            "Could not retrieve the model list. "
-            "The configured default model is still available."
-        )
+    st.title("🤖 FAHIM AI")
 
     st.caption(
-        f"{len(nara_models)} model(s) discovered"
+        f"Hybrid Multimodal Assistant v{APP_VERSION}"
     )
 
     st.divider()
 
-    st.subheader("🧠 AI Model Selection")
+    st.subheader("⚙️ Provider Settings")
 
-    selected_nara_model = st.selectbox(
-        "Select NaraRouter model",
-        options=model_options,
-        index=(
-            model_options.index(NARA_DEFAULT_MODEL)
-            if NARA_DEFAULT_MODEL in model_options
-            else 0
-        ),
-        help="Models returned by your authenticated NaraRouter API.",
+    st.write("**Primary:** NaraRouter")
+
+    st.write(
+        f"**Nara model:** {st.session_state.selected_nara_model}"
     )
 
-    if nara_models_error:
+    if NARA_API_KEY:
 
-        with st.expander("Model discovery details"):
-            st.code(nara_models_error)
+        st.success("NaraRouter API key configured")
 
-    if nara_models:
-
-        with st.expander("Available API models"):
-
-            for model in nara_models:
-                st.caption(f"• {model}")
-
-    st.divider()
-
-    if GEMINI_API_KEY:
-        st.success("Gemini configured")
     else:
-        st.warning("Gemini unavailable: media disabled")
 
-    if GROQ_API_KEY:
-        st.success("Groq fallback configured")
-    else:
-        st.warning("Groq API key missing")
-
-    if OPENROUTER_API_KEY:
-        st.success("OpenRouter fallback configured")
-    else:
-        st.warning("OpenRouter API key missing")
-
-    if supabase is not None:
-        st.success("Supabase permanent memory enabled")
-    else:
-        st.warning("Supabase unavailable: session-only history")
-
-    st.divider()
-
-    st.write("**Active model selection**")
-    st.code(selected_nara_model)
-
-    st.write("**Last successful provider**")
-    st.code(st.session_state.last_provider)
-
-    st.write("**Last successful model**")
-    st.code(st.session_state.last_model)
-
-    st.metric(
-        "Total messages",
-        len(st.session_state.messages),
-    )
-
-    st.metric(
-        "Total requests",
-        st.session_state.request_count,
-    )
-
-    st.metric(
-        "Fallback events",
-        len(st.session_state.fallback_events),
-    )
-
-    with st.expander("Provider fallback history"):
-
-        if st.session_state.fallback_events:
-
-            for event in reversed(
-                st.session_state.fallback_events[-10:]
-            ):
-
-                st.write(
-                    f"**{event['from']}** — {event['model']}"
-                )
-
-                st.caption(event["time"])
-                st.caption(event["error"][:500])
-
-        else:
-            st.caption("No provider failures recorded.")
-
-    st.divider()
+        st.warning("NaraRouter API key missing")
 
     if st.button(
-        "🗑️ Clear conversation",
-        use_container_width=True,
+        "🔄 Discover NaraRouter Models",
+        use_container_width=True
     ):
 
-        if supabase is not None:
+        with st.spinner("Discovering models..."):
+            discover_nara_models()
 
-            if delete_chat_history():
-                st.session_state.messages = []
-                st.session_state.history_loaded = True
-                st.session_state.last_error = None
+        st.rerun()
 
-                st.success("Conversation deleted.")
-                st.rerun()
+    if st.session_state.nara_models:
 
-        else:
-
-            st.session_state.messages = []
-            st.session_state.history_loaded = True
-            st.warning(
-                "Local conversation cleared. "
-                "No Supabase history was available."
+        options = list(
+            dict.fromkeys(
+                [NARA_MODEL] + st.session_state.nara_models
             )
-            st.rerun()
+        )
+
+        current = st.session_state.selected_nara_model
+
+        if current not in options:
+            options.insert(0, current)
+
+        selected = st.selectbox(
+            "NaraRouter Model",
+            options=options,
+            index=options.index(current)
+        )
+
+        st.session_state.selected_nara_model = selected
+
+    else:
+
+        # Keep the configured model available even
+        # when /models discovery fails.
+
+        st.selectbox(
+            "NaraRouter Model",
+            options=[NARA_MODEL],
+            index=0,
+            disabled=True
+        )
+
+        if st.session_state.nara_discovery_error:
+
+            with st.expander("Model discovery details"):
+
+                st.code(
+                    st.session_state.nara_discovery_error
+                )
+
+            st.caption(
+                "Configured model remains available. "
+                "Model discovery is optional."
+            )
 
     st.divider()
 
-    st.subheader("📥 Export Conversation")
+    st.subheader("🔌 Available Providers")
 
-    if st.session_state.messages:
+    providers = [
+        ("NaraRouter", NARA_API_KEY),
+        ("Gemini", GEMINI_API_KEY),
+        ("Groq", GROQ_API_KEY),
+        ("OpenRouter", OPENROUTER_API_KEY),
+    ]
 
-        conversation_text = (
-            "FAHIM AI CONVERSATION LOGS\n"
-            f"Exported: {datetime.now().isoformat()}\n\n"
+    for name, key in providers:
+
+        if key:
+            st.write(f"🟢 {name}")
+        else:
+            st.write(f"⚪ {name}")
+
+    st.divider()
+
+    st.subheader("📊 Statistics")
+
+    st.metric(
+        "Total Messages",
+        len(st.session_state.messages)
+    )
+
+    st.metric(
+        "Requests",
+        st.session_state.request_count
+    )
+
+    st.metric(
+        "Fallback Events",
+        st.session_state.fallback_count
+    )
+
+    st.metric(
+        "Current Provider",
+        st.session_state.active_provider
+    )
+
+    st.metric(
+        "Current Model",
+        st.session_state.active_model
+    )
+
+    st.divider()
+
+    if supabase:
+
+        st.success("Supabase connected")
+
+    else:
+
+        st.warning("Supabase not connected")
+
+    st.divider()
+
+    st.subheader("💬 Chat Management")
+
+    if st.button(
+        "📥 Export Chat",
+        use_container_width=True
+    ):
+
+        chat_json = json.dumps(
+            st.session_state.messages,
+            ensure_ascii=False,
+            indent=2
         )
-
-        for message in st.session_state.messages:
-
-            conversation_text += (
-                f"{message['role'].upper()}:\n"
-                f"{message['content']}\n\n"
-            )
 
         st.download_button(
-            "📄 Export TXT",
-            data=conversation_text,
-            file_name="fahim_ai_history.txt",
-            mime="text/plain",
-            use_container_width=True,
+            "Download JSON",
+            data=chat_json,
+            file_name="fahim_ai_chat.json",
+            mime="application/json",
+            use_container_width=True
         )
 
-    st.divider()
+    if st.button(
+        "🗑️ Clear Current Chat",
+        use_container_width=True
+    ):
 
-    st.markdown("""
-    ### FAHIM AI Features
+        st.session_state.confirm_clear = True
 
-    - NaraRouter primary AI
-    - Automatic model discovery
-    - Model selection dropdown
-    - Gemini image analysis
-    - Gemini audio analysis
-    - Groq text fallback
-    - OpenRouter text fallback
-    - Live response streaming
-    - Automatic provider switching
-    - Supabase permanent history
-    - Multiple image uploads
-    - Multiple audio uploads
-    - Bengali and English
-    - Programming assistance
-    - Business and design assistance
-    """)
+    if st.session_state.get("confirm_clear", False):
 
-    st.divider()
+        st.warning(
+            "Only this session's saved messages will be deleted."
+        )
 
-    st.caption("FAHIM GRAPHIC DESIGN")
-    st.caption("Creative Design. Professional Results.")
+        if st.button("Confirm Delete", type="primary"):
+
+            st.session_state.confirm_clear = False
+
+            clear_chat_history()
+
+        if st.button("Cancel"):
+
+            st.session_state.confirm_clear = False
+
+            st.rerun()
 
 
-# ==========================================================
-# 17. MAIN HEADER
-# ==========================================================
+# ============================================================
+# 16. MAIN INTERFACE
+# ============================================================
 
 st.title("🤖 FAHIM AI")
 
 st.caption(
-    "Hybrid Multimodal AI Assistant | "
+    "Your Hybrid AI Assistant | "
     "NaraRouter + Gemini + Groq + OpenRouter"
-)
-
-st.caption(
-    f"Version {APP_VERSION} | "
-    f"Selected model: {selected_nara_model}"
 )
 
 st.divider()
 
 
-# ==========================================================
+# ============================================================
+# 17. IMAGE SEARCH INTERFACE
+# ============================================================
+
+with st.expander("🔎 Search Images"):
+
+    search_query = st.text_input(
+        "What image do you want to find?",
+        key="image_search_query"
+    )
+
+    if st.button("Search Images"):
+
+        if search_query.strip():
+
+            with st.spinner("Searching images..."):
+
+                results = image_search(
+                    search_query.strip()
+                )
+
+            if results:
+
+                st.success(
+                    f"Found {len(results)} image results."
+                )
+
+                columns = st.columns(2)
+
+                for index, result in enumerate(results):
+
+                    image_url = result.get("image")
+
+                    title = result.get(
+                        "title",
+                        "Image result"
+                    )
+
+                    source = result.get("source", "")
+
+                    with columns[index % 2]:
+
+                        if image_url:
+
+                            try:
+
+                                st.image(
+                                    image_url,
+                                    caption=title,
+                                    use_container_width=True
+                                )
+
+                            except Exception:
+                                st.write(title)
+
+                        if source:
+                            st.caption(source)
+
+                        if image_url:
+                            st.markdown(
+                                f"[Open image]({image_url})"
+                            )
+
+            else:
+
+                st.info("No image results found.")
+
+
+# ============================================================
 # 18. DISPLAY CHAT HISTORY
-# ==========================================================
+# ============================================================
 
 for message in st.session_state.messages:
 
-    role = message.get("role")
+    with st.chat_message(message["role"]):
 
-    if role not in ("user", "assistant"):
-        continue
-
-    with st.chat_message(role):
-        st.markdown(message.get("content", ""))
+        st.markdown(message["content"])
 
 
-# ==========================================================
-# 19. MULTIPLE IMAGE AND AUDIO UPLOAD
-# ==========================================================
+# ============================================================
+# 19. MULTIMODAL UPLOAD
+# ============================================================
 
-st.subheader("📎 Upload Images & Audio")
-
-upload_key = (
-    "fahim_uploads_"
-    f"{st.session_state.upload_widget_version}"
-)
+st.subheader("📎 Attach Files")
 
 uploaded_files = st.file_uploader(
-    "Select multiple images or audio files",
+
+    "Upload multiple images, audio files or documents",
+
     type=[
-        "jpg", "jpeg", "png", "webp",
-        "mp3", "wav", "m4a", "aac", "ogg", "flac",
+        "jpg",
+        "jpeg",
+        "png",
+        "webp",
+        "mp3",
+        "wav",
+        "m4a",
+        "ogg",
+        "flac",
+        "pdf",
+        "txt",
+        "md"
     ],
+
     accept_multiple_files=True,
-    key=upload_key,
+
+    key="fahim_uploads"
+
 )
 
 if uploaded_files:
 
-    st.success(
-        f"{len(uploaded_files)} file(s) selected."
+    st.write(
+        f"Attached files: {len(uploaded_files)}"
     )
 
-    for uploaded_file in uploaded_files:
-
-        mime_type = get_file_mime_type(uploaded_file)
+    for uploaded in uploaded_files:
 
         st.caption(
-            f"{uploaded_file.name} | "
-            f"{mime_type or 'Unknown'} | "
-            f"{len(uploaded_file.getvalue()) / 1024:.1f} KB"
+            f"📄 {uploaded.name} "
+            f"({uploaded.size / 1024:.1f} KB)"
         )
 
-        if mime_type in ALLOWED_IMAGE_TYPES:
 
-            st.image(
-                uploaded_file,
-                caption=uploaded_file.name,
-                width=220,
-            )
-
-        elif mime_type in ALLOWED_AUDIO_TYPES:
-
-            st.audio(uploaded_file)
-
-
-# ==========================================================
+# ============================================================
 # 20. CHAT INPUT
-# ==========================================================
+# ============================================================
 
-user_prompt = st.chat_input(
-    "Ask FAHIM AI anything..."
+user_input = st.chat_input(
+    "Message FAHIM AI..."
 )
 
 
-# ==========================================================
-# 21. PROCESS USER REQUEST
-# ==========================================================
+# ============================================================
+# 21. PROCESS USER MESSAGE
+# ============================================================
 
-if user_prompt:
+if user_input:
 
-    files = uploaded_files or []
+    user_input = user_input.strip()
 
-    st.session_state.request_count += 1
+    if not user_input and not uploaded_files:
+        st.stop()
 
-    user_message = {
+    attachment_info = ""
+
+    if uploaded_files:
+
+        attachment_info = "\n\nAttached files:\n" + "\n".join(
+            f"- {file.name}"
+            for file in uploaded_files
+        )
+
+    display_message = user_input or "Please analyze my attached files."
+
+    if attachment_info:
+        display_message += attachment_info
+
+    # Save user message before generation.
+
+    st.session_state.messages.append({
+
         "role": "user",
-        "content": user_prompt,
-    }
 
-    st.session_state.messages.append(user_message)
+        "content": display_message
+
+    })
+
+    save_message(
+        "user",
+        display_message
+    )
 
     with st.chat_message("user"):
 
-        st.markdown(user_prompt)
+        st.markdown(display_message)
 
-        if files:
-
-            st.caption(
-                "📎 " + ", ".join(
-                    file.name for file in files
-                )
-            )
-
-    user_saved = save_message(
-        "user",
-        user_prompt,
-    )
-
-    if not user_saved and supabase is not None:
-
-        st.warning(
-            "Message is visible in this session, "
-            "but permanent saving failed."
-        )
-
-    # Prepare history without deleting existing messages.
-    try:
-
-        api_history = prepare_history(
-            st.session_state.messages
-        )
-
-        api_history = attach_media_to_history(
-            api_history,
-            files,
-        )
-
-    except Exception as error:
-
-        st.error(
-            f"Attachment processing error: {error}"
-        )
-
-        st.warning(
-            "Your existing chat history has NOT been deleted. "
-            "The text of this request remains in the conversation."
-        )
-
-        st.session_state.upload_widget_version += 1
-        st.rerun()
+    # --------------------------------------------------------
+    # ASSISTANT RESPONSE
+    # --------------------------------------------------------
 
     with st.chat_message("assistant"):
 
-        placeholder = st.empty()
+        response_placeholder = st.empty()
+
+        provider_placeholder = st.empty()
+
+        full_response = ""
+
+        selected_provider = "Unknown"
+
+        selected_model = "Unknown"
 
         try:
 
-            with st.status(
-                "FAHIM AI is starting...",
-                expanded=True,
-            ) as status:
+            with st.spinner("FAHIM AI is thinking..."):
 
-                (
-                    answer,
-                    provider,
-                    requested_model,
-                    actual_model,
-                ) = generate_answer(
-                    contents=api_history,
-                    placeholder=placeholder,
-                    status=status,
-                    selected_nara_model=selected_nara_model,
-                    has_media=bool(files),
-                )
+                for event in generate_response(
+                    user_input or "Analyze the attached files.",
+                    uploaded_files
+                ):
+
+                    if event["type"] == "token":
+
+                        full_response += event["text"]
+
+                        selected_provider = event["provider"]
+
+                        selected_model = event["model"]
+
+                        response_placeholder.markdown(
+                            full_response + "▌"
+                        )
+
+                    elif event["type"] == "done":
+
+                        selected_provider = event["provider"]
+
+                        selected_model = event["model"]
+
+            response_placeholder.markdown(
+                full_response
+            )
+
+            st.session_state.active_provider = selected_provider
+
+            st.session_state.active_model = selected_model
+
+            provider_placeholder.caption(
+                f"⚡ Provider: {selected_provider} | "
+                f"Model: {selected_model}"
+            )
+
+            # Save assistant response permanently.
 
             st.session_state.messages.append({
+
                 "role": "assistant",
-                "content": answer,
+
+                "content": full_response
+
             })
 
-            assistant_saved = save_message(
+            save_message(
                 "assistant",
-                answer,
+                full_response
             )
 
-            st.caption(
-                f"⚡ Active provider: {provider}"
-            )
+        except Exception as e:
 
-            st.caption(
-                f"🧠 Requested model: {requested_model}"
-            )
+            error_message = str(e)
 
-            st.caption(
-                f"🔍 Reported model: {actual_model}"
-            )
-
-            if assistant_saved:
-
-                st.caption(
-                    "☁️ Permanently saved to Supabase"
-                )
-
-            elif supabase is not None:
-
-                st.warning(
-                    "Answer generated, but permanent saving failed."
-                )
-
-        except Exception as error:
-
-            st.session_state.last_error = str(error)
-
-            placeholder.empty()
+            st.session_state.last_error = error_message
 
             st.error(
-                "FAHIM AI could not complete the response."
+                "AI request failed."
             )
 
-            with st.expander(
-                "Technical error details",
-                expanded=True,
-            ):
+            with st.expander("Technical error details"):
 
-                st.code(str(error))
+                st.code(error_message)
 
-            st.info(
-                "Your existing chat history has NOT been deleted. "
-                "Check the API key, model access, quota and provider status."
-            )
+            # Do not save an error as an assistant answer.
 
-    # Reset uploaded files after processing.
-    st.session_state.upload_widget_version += 1
+            st.session_state.active_provider = "Failed"
 
-    st.rerun()
+            st.session_state.active_model = "None"
 
 
-# ==========================================================
+# ============================================================
 # 22. FOOTER
-# ==========================================================
+# ============================================================
 
 st.divider()
 
 st.caption(
-    "© 2026 FAHIM AI | "
-    "NaraRouter + Gemini + Groq + OpenRouter + Supabase | "
-    "Version 5.0"
+    f"FAHIM AI v{APP_VERSION} | "
+    "Hybrid Multimodal AI Assistant | "
+    "Powered by Fahim"
 )
