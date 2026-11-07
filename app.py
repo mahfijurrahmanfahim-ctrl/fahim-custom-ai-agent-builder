@@ -73,7 +73,7 @@ st.set_page_config(
 # ================================================================
 
 APP_NAME = "FAHIM AI"
-APP_VERSION = "6.1"
+APP_VERSION = "6.2"
 
 NARA_BASE_URL = "https://router.bynara.id/v1"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
@@ -120,6 +120,10 @@ CLAUDE_API_KEY = (
 
 SUPABASE_URL = get_secret("SUPABASE_URL")
 SUPABASE_KEY = get_secret("SUPABASE_KEY")
+# Preferred for server-side Streamlit database operations.
+# Keep this key only in Streamlit Secrets; never expose it in client code.
+SUPABASE_SECRET_KEY = get_secret("SUPABASE_SECRET_KEY")
+SUPABASE_ACTIVE_KEY = SUPABASE_SECRET_KEY or SUPABASE_KEY
 
 GEMINI_MODEL = get_secret(
     "GEMINI_MODEL",
@@ -203,7 +207,7 @@ def get_supabase_client(url, key):
 
 supabase = get_supabase_client(
     SUPABASE_URL,
-    SUPABASE_KEY
+    SUPABASE_ACTIVE_KEY
 )
 
 
