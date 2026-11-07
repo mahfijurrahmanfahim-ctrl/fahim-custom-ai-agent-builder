@@ -113,6 +113,10 @@ NARA_API_KEY = get_secret("NARA_API_KEY")
 GEMINI_API_KEY = get_secret("GEMINI_API_KEY")
 GROQ_API_KEY = get_secret("GROQ_API_KEY")
 OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY")
+CLAUDE_API_KEY = (
+    get_secret("ANTHROPIC_API_KEY")
+    or get_secret("CLAUDE_API_KEY")
+)
 
 SUPABASE_URL = get_secret("SUPABASE_URL")
 SUPABASE_KEY = get_secret("SUPABASE_KEY")
@@ -137,6 +141,13 @@ OPENROUTER_MODEL_SETTING = get_secret(
     ""
 )
 
+CLAUDE_MODEL_SETTING = get_secret(
+    "CLAUDE_MODEL",
+    ""
+)
+
+DEFAULT_CLAUDE_MODEL = "claude-sonnet-5-5"
+
 
 # ================================================================
 # SESSION STATE
@@ -153,6 +164,7 @@ def initialize_state():
         "nara_models": [],
         "groq_models": [],
         "openrouter_models": [],
+        "claude_models": [],
         "provider_errors": [],
         "gemini_quota_blocked": False,
         "web_search_enabled": False,
@@ -770,6 +782,141 @@ def generate_openrouter(messages):
 
 
 # ================================================================
+# CLAUDE MODEL DISCOVERY AND TEXT REQUEST
+# ================================================================
+
+def discover_claude_models():
+
+    if not CLAUDE_API_KEY:
+        return []
+
+    try:
+
+        response = requests.get(
+            "https://api.anthropic.com/v1/models",
+            headers={
+                "x-api-key": CLAUDE_API_KEY,
+                "anthropic-version": "2023-06-01"
+            },
+            timeout=20
+        )
+
+        if response.status_code != 200:
+            raise RuntimeError(
+                "Claude model discovery HTTP "
+                + str(response.status_code)
+                + ": "
+                + extract_error(response)
+            )
+
+        data = response.json()
+        models = [
+            item.get("id")
+            for item in data.get("data", [])
+            if isinstance(item, dict) and item.get("id")
+        ]
+
+        st.session_state.claude_models = models
+        return models
+
+    except Exception as error:
+
+        st.session_state.provider_errors.append(
+            "Claude model discovery: " + str(error)
+        )
+        return []
+
+
+def choose_claude_model(models):
+
+    if CLAUDE_MODEL_SETTING:
+        if CLAUDE_MODEL_SETTING in models:
+            return CLAUDE_MODEL_SETTING
+
+    if DEFAULT_CLAUDE_MODEL in models:
+        return DEFAULT_CLAUDE_MODEL
+
+    return models[0] if models else None
+
+
+def generate_claude(messages):
+
+    if not CLAUDE_API_KEY:
+        raise RuntimeError(
+            "ANTHROPIC_API_KEY is missing from Streamlit Secrets."
+        )
+
+    models = discover_claude_models()
+    model = choose_claude_model(models)
+
+    if not model:
+        raise RuntimeError(
+            "Claude returned no available models. "
+            "Check the API key, account access, and API billing."
+        )
+
+    system_parts = []
+    conversation = []
+
+    for item in messages:
+
+        role = item.get("role")
+        content = item.get("content", "")
+
+        if role == "system":
+            if content:
+                system_parts.append(str(content))
+        elif role in ("user", "assistant"):
+            conversation.append({
+                "role": role,
+                "content": str(content)
+            })
+
+    if not conversation:
+        raise RuntimeError("Claude request has no user messages.")
+
+    payload = {
+        "model": model,
+        "max_tokens": 2048,
+        "messages": conversation
+    }
+
+    if system_parts:
+        payload["system"] = "\n\n".join(system_parts)
+
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": CLAUDE_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        },
+        json=payload,
+        timeout=90
+    )
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            "Claude API HTTP "
+            + str(response.status_code)
+            + ": "
+            + extract_error(response)
+        )
+
+    data = response.json()
+    answer = "\n".join(
+        block.get("text", "")
+        for block in data.get("content", [])
+        if isinstance(block, dict) and block.get("type") == "text"
+    ).strip()
+
+    if not answer:
+        raise RuntimeError("Claude returned an empty response.")
+
+    return answer, model
+
+
+# ================================================================
 # GEMINI MULTIMODAL REQUEST
 # ================================================================
 
@@ -1078,10 +1225,36 @@ def prepare_messages(user_prompt, web_context=""):
 def run_text_providers(messages):
 
     provider_order = [
+        ("Claude", generate_claude),
         ("NaraRouter", generate_nara),
         ("Groq", generate_groq),
         ("OpenRouter", generate_openrouter)
     ]
+
+    selected = st.session_state.get("provider", "Auto")
+
+    if selected == "Gemini":
+
+        if not GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY is missing.")
+
+        prompt = "\n\n".join(
+            item.get("role", "user").upper()
+            + ": "
+            + str(item.get("content", ""))
+            for item in messages
+            if item.get("role") in ("system", "user", "assistant")
+        )
+        answer, model = generate_gemini(prompt)
+        st.session_state.last_provider = "Gemini"
+        st.session_state.last_model = model
+        return answer
+
+    if selected != "Auto":
+        provider_order = [
+            item for item in provider_order
+            if item[0] == selected
+        ]
 
     errors = []
 
@@ -1089,16 +1262,26 @@ def run_text_providers(messages):
 
         try:
 
+            if provider_name == "Claude" and not CLAUDE_API_KEY:
+                if selected == "Claude":
+                    raise RuntimeError(
+                        "ANTHROPIC_API_KEY is missing from Streamlit Secrets."
+                    )
+                continue
+
             if provider_name == "NaraRouter" and not NARA_API_KEY:
+                if selected == "NaraRouter":
+                    raise RuntimeError("NARA_API_KEY is missing.")
                 continue
 
             if provider_name == "Groq" and not GROQ_API_KEY:
+                if selected == "Groq":
+                    raise RuntimeError("GROQ_API_KEY is missing.")
                 continue
 
-            if (
-                provider_name == "OpenRouter"
-                and not OPENROUTER_API_KEY
-            ):
+            if provider_name == "OpenRouter" and not OPENROUTER_API_KEY:
+                if selected == "OpenRouter":
+                    raise RuntimeError("OPENROUTER_API_KEY is missing.")
                 continue
 
             answer, model = function(messages)
@@ -1110,19 +1293,16 @@ def run_text_providers(messages):
 
         except Exception as error:
 
-            error_text = (
-                provider_name + ": " + str(error)
-            )
-
+            error_text = provider_name + ": " + str(error)
             errors.append(error_text)
+            st.session_state.provider_errors.append(error_text)
 
-            st.session_state.provider_errors.append(
-                error_text
-            )
+            if selected != "Auto":
+                break
 
     raise RuntimeError(
-        "All available text providers failed:\n\n"
-        + "\n\n".join(errors)
+        "Selected provider failed or no configured text provider was available:\n\n"
+        + ("\n\n".join(errors) if errors else "Add the provider API key in Streamlit Secrets.")
     )
 
 
@@ -1276,6 +1456,33 @@ def test_groq_connection():
         return False, str(error)
 
 
+def test_claude_connection():
+
+    if not CLAUDE_API_KEY:
+        return False, (
+            "ANTHROPIC_API_KEY is missing from Streamlit Secrets."
+        )
+
+    try:
+
+        answer, model = generate_claude([
+            {
+                "role": "user",
+                "content": "Reply with exactly: CLAUDE CONNECTION SUCCESSFUL"
+            }
+        ])
+
+        return True, (
+            "CLAUDE CONNECTION SUCCESSFUL\n"
+            "Model: " + model + "\n"
+            + answer
+        )
+
+    except Exception as error:
+
+        return False, str(error)
+
+
 def test_gemini_connection():
 
     if not GEMINI_API_KEY:
@@ -1326,7 +1533,8 @@ with st.sidebar:
             "NaraRouter",
             "Groq",
             "OpenRouter",
-            "Gemini"
+            "Gemini",
+            "Claude"
         ],
         index=0
     )
@@ -1336,6 +1544,11 @@ with st.sidebar:
     st.divider()
 
     st.subheader("🔌 Provider Status")
+
+    st.write(
+        "Claude:",
+        "Key configured" if CLAUDE_API_KEY else "Not configured"
+    )
 
     st.write(
         "NaraRouter:",
@@ -1388,6 +1601,20 @@ with st.sidebar:
     st.subheader("🧪 Connection Tests")
 
     if st.button(
+        "Test Claude",
+        use_container_width=True
+    ):
+
+        with st.spinner("Testing Claude API..."):
+
+            ok, message = test_claude_connection()
+
+        if ok:
+            st.success(message)
+        else:
+            st.error(message)
+
+    if st.button(
         "Test NaraRouter",
         use_container_width=True
     ):
@@ -1436,12 +1663,14 @@ with st.sidebar:
 
         with st.spinner("Checking available models..."):
 
+            claude = discover_claude_models()
             nara = discover_nara_models()
             groq = discover_groq_models()
             openrouter = discover_openrouter_models()
 
         st.success("Model discovery completed.")
 
+        st.write("Claude:", claude)
         st.write("NaraRouter:", nara)
         st.write("Groq:", groq)
         st.write("OpenRouter free:", openrouter)
