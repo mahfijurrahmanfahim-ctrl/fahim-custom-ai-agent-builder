@@ -1860,7 +1860,7 @@ status_items = [
     ("AI providers", "Multi-model"),
     ("Capabilities", "Text + files"),
     ("Research", "Web search"),
-    ("Workspace", "Private session")
+    ("Workspace", "Chat session")
 ]
 for column, item in zip(status_cols, status_items):
     with column:
