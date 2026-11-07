@@ -1,5 +1,7 @@
+
 streamlit
-openai
-google-genai
+requests
 supabase
 ddgs
+google-genai
+pypdf
