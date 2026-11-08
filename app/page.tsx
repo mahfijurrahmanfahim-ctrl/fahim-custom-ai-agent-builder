@@ -2,10 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  Activity, ArrowUp, Bot, BriefcaseBusiness, Check, ChevronDown, Clock3,
-  Command, FileText, Globe2, Image as ImageIcon, Menu, MessageSquare,
-  MoreHorizontal, Plus, Search, Send, Settings2, ShieldCheck, Sparkles,
-  SquarePen, Trash2, WandSparkles, X
+  Activity, ArrowUp, BriefcaseBusiness, Check, Clock3, Command, FileText,
+  Globe2, Image as ImageIcon, LayoutDashboard, Menu, MessageSquare,
+  MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Sparkles,
+  SquarePen, Target, Trash2, TrendingUp, WandSparkles, X
 } from "lucide-react";
 
 type Message = { role: "user" | "assistant"; content: string };
@@ -25,7 +25,7 @@ export default function Home() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [active, setActive] = useState("Assistant");
+  const [active, setActive] = useState("Overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [notice, setNotice] = useState("");
@@ -153,6 +153,7 @@ export default function Home() {
   }
 
   const nav = [
+    { label: "Overview", icon: LayoutDashboard },
     { label: "Assistant", icon: MessageSquare },
     { label: "Client Finder", icon: Search },
     { label: "Social Media Manager", icon: WandSparkles },
@@ -193,6 +194,32 @@ export default function Home() {
         </header>
 
         <div className="content-area">
+          {active === "Overview" && (
+            <div className="page-section dashboard-page">
+              <div className="dashboard-heading">
+                <div><div className="eyebrow"><span className="eyebrow-line"/> FAHIM GRAPHIC DESIGN · COMMAND CENTRE</div><h1>Good evening, <span>Fahim.</span></h1><p className="section-lead">Your business workspace is ready. Choose what to move forward today.</p></div>
+                <div className="dashboard-date"><span className="status-dot"/> PRIVATE WORKSPACE</div>
+              </div>
+              <div className="dashboard-stats">
+                <article className="stat-card"><span className="stat-icon"><Target size={18}/></span><span className="stat-label">Saved client research</span><strong>{leadResearch ? "1" : "0"}</strong><small>{leadResearch ? "Latest research in this session" : "Run your first business search"}</small></article>
+                <article className="stat-card"><span className="stat-icon"><ShieldCheck size={18}/></span><span className="stat-label">Awaiting your approval</span><strong>{drafts.length}</strong><small>Drafts saved in this browser</small></article>
+                <article className="stat-card"><span className="stat-icon"><MessageSquare size={18}/></span><span className="stat-label">Assistant messages</span><strong>{messages.length}</strong><small>Conversation history on this device</small></article>
+                <article className="stat-card"><span className="stat-icon"><TrendingUp size={18}/></span><span className="stat-label">Business focus</span><strong>Clients</strong><small>Build a steady design pipeline</small></article>
+              </div>
+              <div className="dashboard-section-title"><div><span className="eyebrow">YOUR NEXT ACTIONS</span><h2>Move the business forward</h2></div><span className="dashboard-hint">Pick a task to start</span></div>
+              <div className="action-grid">
+                <button className="action-card action-featured" onClick={()=>setActive("Client Finder")}><span className="action-card-icon"><Search size={20}/></span><span className="action-kicker">GROW YOUR BUSINESS</span><strong>Find real clients</strong><span>Research restaurants, cafes, gyms and local brands with source links.</span><span className="action-link">Open client finder <ArrowUp size={14}/></span></button>
+                <button className="action-card" onClick={()=>setActive("Social Media Manager")}><span className="action-card-icon"><WandSparkles size={20}/></span><span className="action-kicker">BUILD YOUR BRAND</span><strong>Create a social post</strong><span>Generate captions, hashtags and visual direction for your channels.</span><span className="action-link">Open social studio <ArrowUp size={14}/></span></button>
+                <button className="action-card" onClick={()=>setActive("Content Studio")}><span className="action-card-icon"><ImageIcon size={20}/></span><span className="action-kicker">MAKE PORTFOLIO WORK</span><strong>Create design projects</strong><span>Build premium concepts for menus, ads and business campaigns.</span><span className="action-link">Open content studio <ArrowUp size={14}/></span></button>
+                <button className="action-card" onClick={()=>setActive("Assistant")}><span className="action-card-icon"><Sparkles size={20}/></span><span className="action-kicker">PLAN & PREPARE</span><strong>Talk to your AI assistant</strong><span>Plan client work, write proposals and organise your next move.</span><span className="action-link">Open assistant <ArrowUp size={14}/></span></button>
+              </div>
+              <div className="dashboard-bottom">
+                <section className="daily-plan"><div className="bottom-title"><CalendarCheck size={17}/><strong>Daily growth checklist</strong></div><div className="check-row"><span className="check-number">01</span><span><strong>Find 5 suitable businesses</strong><small>Prioritise independent restaurants and cafes in Portugal.</small></span><button onClick={()=>setActive("Client Finder")}>Start</button></div><div className="check-row"><span className="check-number">02</span><span><strong>Prepare one personalised offer</strong><small>Save the message for your review before contacting anyone.</small></span><button onClick={()=>setActive("Assistant")}>Start</button></div><div className="check-row"><span className="check-number">03</span><span><strong>Publish-ready portfolio content</strong><small>Create one post and keep it in your approval queue.</small></span><button onClick={()=>setActive("Social Media Manager")}>Start</button></div></section>
+                <section className="approval-preview"><div className="bottom-title"><ShieldCheck size={17}/><strong>Approval queue</strong><span className="queue-pill">{drafts.length} drafts</span></div>{drafts.length ? <><p>You have work waiting for your review.</p><button className="primary-btn" onClick={()=>setActive("Approval Queue")}>Review saved drafts <ArrowUp size={14}/></button></> : <><p>Your workspace is clear. Save outreach and social drafts here before using them.</p><button className="secondary-btn" onClick={()=>setActive("Approval Queue")}>Open approval queue</button></>}</section>
+              </div>
+              <div className="dashboard-note"><ShieldCheck size={15}/><span><strong>Approval-first protection:</strong> this workspace prepares research and drafts. It does not send client messages or publish posts automatically.</span></div>
+            </div>
+          )}
           {active === "Assistant" && (
             <div className="chat-wrap">
               <div className="welcome-block">
