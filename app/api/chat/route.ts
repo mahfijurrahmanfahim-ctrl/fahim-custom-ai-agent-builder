@@ -23,6 +23,44 @@ function getMessages(messages: ChatMessage[]) {
   }));
 }
 
+function hermesBaseUrl() {
+  const raw = process.env.HERMES_GATEWAY_URL?.trim();
+  if (!raw) return null;
+  const parsed = new URL(raw);
+  if (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && ["localhost", "127.0.0.1"].includes(parsed.hostname))) {
+    throw new Error("Hermes gateway URL must use HTTPS (HTTP is allowed only for localhost).");
+  }
+  return raw.replace(/\/+$/, "").replace(/\/v1$/, "");
+}
+
+async function callHermes(messages: ChatMessage[]) {
+  const base = hermesBaseUrl();
+  const key = process.env.HERMES_API_KEY;
+  if (!base || !key) throw new Error("Hermes is not configured");
+  const response = await fetch(base + "/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + key
+    },
+    body: JSON.stringify({
+      model: process.env.HERMES_MODEL || "hermes-agent",
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        ...getMessages(messages)
+      ],
+      temperature: 0.7
+    }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(60000)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data?.error?.message || "Hermes gateway request failed (" + response.status + ")");
+  const answer = data?.choices?.[0]?.message?.content?.trim();
+  if (!answer) throw new Error("Hermes returned an empty response");
+  return { answer, model: "Hermes Agent" };
+}
+
 async function callGemini(messages: ChatMessage[]) {
   const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
   if (!key) throw new Error("Gemini key not configured");
@@ -93,32 +131,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Please enter a message." }, { status: 400 });
     }
 
+    const failures: string[] = [];
+    if (process.env.HERMES_GATEWAY_URL && process.env.HERMES_API_KEY) {
+      try {
+        return NextResponse.json(await callHermes(messages));
+      } catch (error) {
+        failures.push("Hermes: " + (error instanceof Error ? error.message : "connection failed"));
+      }
+    }
+
     const providers: Array<() => Promise<{ answer: string; model: string }>> = [
       () => callGemini(messages),
       () => callOpenAICompatible("groq", messages),
       () => callOpenAICompatible("openrouter", messages)
     ];
-    const failures: string[] = [];
     for (const provider of providers) {
       try {
-        const result = await provider();
-        return NextResponse.json(result);
+        return NextResponse.json(await provider());
       } catch (error) {
         failures.push(error instanceof Error ? error.message : "Provider failed");
       }
     }
 
     const configured = [
+      process.env.HERMES_GATEWAY_URL && process.env.HERMES_API_KEY,
       process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY,
       process.env.GROQ_API_KEY,
       process.env.OPENROUTER_API_KEY
     ].some(Boolean);
     return NextResponse.json({
       error: configured
-        ? "All configured AI providers failed. Check that your API keys are active and their free-tier quotas are available. Details: " + failures.join(" | ")
+        ? "All configured AI providers failed. Check that your gateway/API keys are active and their free-tier quotas are available. Details: " + failures.join(" | ")
         : "No AI provider is configured yet. Add a fresh GEMINI_API_KEY or GROQ_API_KEY in Vercel Environment Variables, then redeploy. Both can have free usage tiers."
     }, { status: configured ? 502 : 503 });
-  } catch {
-    return NextResponse.json({ error: "Unable to process the request. Please try again." }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Unable to process the request. Please try again."
+    }, { status: 500 });
   }
 }
