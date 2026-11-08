@@ -56,3 +56,7 @@ button{cursor:pointer}
 .source-list a:hover{text-decoration:underline}
 .error-panel{margin-top:18px;padding:13px;border:1px solid #65403a;background:#211514;color:#e1aaa0;border-radius:9px;font-size:11px;line-height:1.6}
 @media(max-width:480px){.results-heading .secondary-btn{width:100%}.lead-results{padding:14px}}
+
+/* Social media manager */
+.lead-form input{font-family:inherit}
+.lead-form select{font-family:inherit}
