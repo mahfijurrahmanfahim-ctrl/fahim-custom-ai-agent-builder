@@ -10,6 +10,7 @@ import {
 
 type Message = { role: "user" | "assistant"; content: string };
 type Draft = { id: string; title: string; body: string; createdAt: string };
+type LeadResearch = { answer: string; sources: { url: string; title: string }[]; model: string; researchedAt: string };
 
 const starters = [
   { icon: BriefcaseBusiness, title: "Find potential clients", prompt: "Help me create a practical plan to find verified restaurant and small-business clients for my graphic design services. Do not invent leads." },
@@ -26,6 +27,11 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [notice, setNotice] = useState("");
+  const [leadLocation, setLeadLocation] = useState("Lisbon, Portugal");
+  const [leadCategory, setLeadCategory] = useState("restaurants and cafes");
+  const [leadResearch, setLeadResearch] = useState<LeadResearch | null>(null);
+  const [leadBusy, setLeadBusy] = useState(false);
+  const [leadError, setLeadError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -68,6 +74,18 @@ export default function Home() {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function findLeads() {
+    if (!leadLocation.trim() || leadBusy) return;
+    setLeadBusy(true); setLeadError(""); setLeadResearch(null);
+    try {
+      const response = await fetch("/api/leads", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ location: leadLocation, category: leadCategory, count: 5 }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Lead research failed.");
+      setLeadResearch(data);
+    } catch (error) { setLeadError(error instanceof Error ? error.message : "Lead research failed."); }
+    finally { setLeadBusy(false); }
   }
 
   function saveDraft() {
@@ -140,7 +158,7 @@ export default function Home() {
             </div>
           )}
 
-          {active === "Client Finder" && <div className="page-section"><div className="eyebrow"><span className="eyebrow-line"/> GROW YOUR BUSINESS</div><h1>Find your next <span>great client.</span></h1><p className="section-lead">A focused workspace for discovering businesses that may need design, menus or promotional content.</p><div className="feature-panel"><div className="feature-icon"><Globe2 size={22}/></div><div><h3>Verified lead research</h3><p>Live business discovery is not connected yet. I will not show made-up businesses or pretend a lead is verified.</p><button className="primary-btn" onClick={() => sendMessage("Create a step-by-step lead research plan for restaurants, cafés, gyms and small businesses in Portugal and the UK. Explain how to verify each business and identify a public contact channel.")}>Build my lead research plan <ArrowUp size={15}/></button></div></div><div className="info-grid"><div className="info-tile"><Search size={18}/><strong>Find relevant businesses</strong><span>Prioritise restaurants, cafés and local brands.</span></div><div className="info-tile"><Check size={18}/><strong>Verify before saving</strong><span>Check that each business and contact source is real.</span></div><div className="info-tile"><ShieldCheck size={18}/><strong>Approve outreach</strong><span>Nothing is sent without your permission.</span></div></div></div>}
+          {active === "Client Finder" && <div className="page-section"><div className="eyebrow"><span className="eyebrow-line"/> GROW YOUR BUSINESS</div><h1>Find your next <span>great client.</span></h1><p className="section-lead">Research real public businesses and identify relevant design opportunities. Every result must have a source; nothing is contacted automatically.</p><div className="feature-panel"><div className="feature-icon"><Globe2 size={22}/></div><div className="lead-form"><h3>Live business research</h3><label htmlFor="lead-location">City or area</label><input id="lead-location" value={leadLocation} onChange={(e)=>setLeadLocation(e.target.value)} placeholder="e.g. Lisbon, Portugal"/><label htmlFor="lead-category">Business type</label><select id="lead-category" value={leadCategory} onChange={(e)=>setLeadCategory(e.target.value)}><option value="restaurants and cafes">Restaurants & cafes</option><option value="gyms and fitness studios">Gyms & fitness studios</option><option value="clothing boutiques and fashion brands">Clothing & fashion</option><option value="beauty salons and barbershops">Beauty & barbershops</option><option value="hotels and guest houses">Hotels & guest houses</option><option value="small local businesses">Small local businesses</option></select><button className="primary-btn" onClick={findLeads} disabled={leadBusy || !leadLocation.trim()}>{leadBusy ? "Researching public sources…" : "Find real business leads"} <Search size={15}/></button><p className="lead-disclaimer">Uses Google Search grounding through your configured Gemini API key. Results are research leads, not guaranteed buyers. Review every source before contacting a business.</p></div></div>{leadError && <div className="error-panel">{leadError}</div>}{leadResearch && <div className="lead-results"><div className="results-heading"><div><h3>Research results</h3><span>Checked {new Date(leadResearch.researchedAt).toLocaleString()} · {leadResearch.model}</span></div><button className="secondary-btn" onClick={()=>{setMessages([...messages,{role:"user",content:"Turn this sourced business research into a shortlist with personalised, approval-only outreach drafts. Do not send anything.\n\n"+leadResearch.answer}]);setActive("Assistant");}}>Prepare outreach drafts</button></div><pre className="lead-answer">{leadResearch.answer}</pre>{leadResearch.sources.length>0 && <div className="source-list"><strong>Research sources</strong>{leadResearch.sources.map((source,i)=><a key={source.url} href={source.url} target="_blank" rel="noreferrer">{i+1}. {source.title} ↗</a>)}</div>}</div>}<div className="info-grid"><div className="info-tile"><Search size={18}/><strong>Public-source research</strong><span>Only use businesses supported by searchable public sources.</span></div><div className="info-tile"><Check size={18}/><strong>Verify before outreach</strong><span>Check the official website and business details yourself.</span></div><div className="info-tile"><ShieldCheck size={18}/><strong>You approve every message</strong><span>No emails or DMs are sent by this research tool.</span></div></div></div>}
 
           {active === "Content Studio" && <div className="page-section"><div className="eyebrow"><span className="eyebrow-line"/> CREATIVE WORKSPACE</div><h1>Make something <span>stand out.</span></h1><p className="section-lead">Plan high-quality creative work for your clients and your own brand.</p><div className="studio-grid">{[{title:"Restaurant menu",desc:"Plan a polished, easy-to-read menu.",prompt:"Create a professional restaurant menu design brief. Ask me for the actual menu items, prices and brand details; never invent them.",icon:FileText},{title:"Social media campaign",desc:"Build a campaign with clear visual direction.",prompt:"Create a social media campaign concept for Fahim Graphic Design, including a visual direction, caption and call to action.",icon:ImageIcon},{title:"Promotional video",desc:"Develop a cinematic short-form video concept.",prompt:"Create a cinematic 30-second promotional video concept for Fahim Graphic Design with scene-by-scene visuals and voiceover.",icon:Activity},{title:"Client proposal",desc:"Prepare a clear proposal for a potential client.",prompt:"Create a professional graphic design service proposal template for a small business client. Leave unknown client details as placeholders.",icon:BriefcaseBusiness}].map(({title,desc,prompt,icon:Icon})=><button className="studio-card" key={title} onClick={()=>{setActive("Assistant");sendMessage(prompt);}}><span className="studio-icon"><Icon size={19}/></span><strong>{title}</strong><span>{desc}</span><span className="studio-open">Open workspace <ArrowUp size={13}/></span></button>)}</div></div>}
 
