@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  Activity, ArrowUp, BriefcaseBusiness, Check, Clock3, Command, FileText,
+  Activity, ArrowUp, BriefcaseBusiness, CalendarCheck, Check, Clock3, Command, FileText,
   Globe2, Image as ImageIcon, LayoutDashboard, Menu, MessageSquare,
   MoreHorizontal, Plus, Search, Settings2, ShieldCheck, Sparkles,
   SquarePen, Target, Trash2, TrendingUp, WandSparkles, X
