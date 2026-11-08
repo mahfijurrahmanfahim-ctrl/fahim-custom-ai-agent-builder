@@ -13,6 +13,7 @@ type Draft = { id: string; title: string; body: string; createdAt: string };
 type LeadResearch = { answer: string; sources: { url: string; title: string }[]; model: string; researchedAt: string };
 type ProjectResult = { answer: string; model: string; createdAt: string };
 type SocialResult = { answer: string; model: string; createdAt: string };
+type Prospect = { id: string; business: string; category: string; city: string; source: string; opportunity: string; contact: string; stage: string; followUp: string; notes: string; createdAt: string };
 
 const starters = [
   { icon: BriefcaseBusiness, title: "Find potential clients", prompt: "Help me create a practical plan to find verified restaurant and small-business clients for my graphic design services. Do not invent leads." },
@@ -29,6 +30,8 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [notice, setNotice] = useState("");
+  const [prospects, setProspects] = useState<Prospect[]>([]);
+  const [prospectForm, setProspectForm] = useState({ business: "", category: "Restaurant / cafe", city: "Portugal", source: "", opportunity: "", contact: "", followUp: "", notes: "" });
   const [leadLocation, setLeadLocation] = useState("Lisbon, Portugal");
   const [leadCategory, setLeadCategory] = useState("restaurants and cafes");
   const [leadResearch, setLeadResearch] = useState<LeadResearch | null>(null);
@@ -51,8 +54,10 @@ export default function Home() {
     try {
       const saved = localStorage.getItem("fahim-autopilot-messages");
       const savedDrafts = localStorage.getItem("fahim-autopilot-drafts");
+      const savedProspects = localStorage.getItem("fahim-autopilot-prospects");
       if (saved) setMessages(JSON.parse(saved));
       if (savedDrafts) setDrafts(JSON.parse(savedDrafts));
+      if (savedProspects) setProspects(JSON.parse(savedProspects));
     } catch {}
   }, []);
 
@@ -64,6 +69,36 @@ export default function Home() {
   useEffect(() => {
     localStorage.setItem("fahim-autopilot-drafts", JSON.stringify(drafts));
   }, [drafts]);
+
+  useEffect(() => {
+    localStorage.setItem("fahim-autopilot-prospects", JSON.stringify(prospects));
+  }, [prospects]);
+
+  function addProspect() {
+    if (!prospectForm.business.trim()) return;
+    const item: Prospect = { ...prospectForm, id: String(Date.now()), stage: "New", createdAt: new Date().toISOString() };
+    setProspects([item, ...prospects]);
+    setProspectForm({ business: "", category: "Restaurant / cafe", city: "Portugal", source: "", opportunity: "", contact: "", followUp: "", notes: "" });
+    setNotice("Prospect added to your private pipeline.");
+  }
+
+  function draftProspectOutreach(prospect: Prospect) {
+    const body = [
+      "Hello " + prospect.business + " team,",
+      "",
+      "I’m Fahim from Fahim Graphic Design. I help small businesses create professional menus, promotional graphics and social media visuals.",
+      prospect.opportunity ? "I noticed a possible opportunity: " + prospect.opportunity + "." : "I’d be happy to explore whether any design support would be useful for your business.",
+      "",
+      "Here is my portfolio: https://mahfijurrahmanfahim-ctrl.github.io/fahim-graphic-design-portfolio/",
+      "",
+      "Would you be open to taking a look?",
+      "",
+      "Best regards,",
+      "Fahim"
+    ].join("\n");
+    setDrafts([{ id: String(Date.now()), title: "Outreach — " + prospect.business, body, createdAt: new Date().toLocaleString() }, ...drafts]);
+    setNotice("Outreach draft saved for your approval. Nothing was sent.");
+  }
 
   async function sendMessage(text?: string) {
     const value = (text ?? input).trim();
@@ -155,6 +190,7 @@ export default function Home() {
   const nav = [
     { label: "Overview", icon: LayoutDashboard },
     { label: "Assistant", icon: MessageSquare },
+    { label: "Client Pipeline", icon: BriefcaseBusiness },
     { label: "Client Finder", icon: Search },
     { label: "Social Media Manager", icon: WandSparkles },
     { label: "Content Studio", icon: ImageIcon },
@@ -234,6 +270,48 @@ export default function Home() {
                 <div ref={endRef}/>
               </div>
               <div className="composer-wrap"><div className="composer"><textarea value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => {if(e.key === "Enter" && !e.shiftKey){e.preventDefault();sendMessage();}}} placeholder="Ask FAHIM AUTOPILOT anything…" rows={1}/><div className="composer-bottom"><span><Command size={12}/> Enter to send · Shift + Enter for new line</span><button className="send-btn" onClick={() => sendMessage()} disabled={!input.trim() || busy} aria-label="Send message"><ArrowUp size={18}/></button></div></div><div className="composer-note"><ShieldCheck size={12}/> Your conversations stay in this browser. External actions always require your approval.</div></div>
+            </div>
+          )}
+
+          {active === "Client Pipeline" && (
+            <div className="page-section">
+              <div className="eyebrow"><span className="eyebrow-line"/> YOUR SALES WORKSPACE</div>
+              <h1>Turn prospects into <span>paying clients.</span></h1>
+              <p className="section-lead">A private mini-CRM inspired by open-source local-first CRM projects. Track real businesses, follow-ups and outreach. Everything stays in this browser; no API key or external database.</p>
+              <div className="pipeline-stats">
+                <div><strong>{prospects.length}</strong><span>Total prospects</span></div>
+                <div><strong>{prospects.filter(x=>x.stage==="Contacted").length}</strong><span>Contacted</span></div>
+                <div><strong>{prospects.filter(x=>x.stage==="Interested").length}</strong><span>Interested</span></div>
+                <div><strong>{prospects.filter(x=>x.stage==="Won").length}</strong><span>Won</span></div>
+              </div>
+              <section className="prospect-form">
+                <div className="bottom-title"><Plus size={17}/><strong>Add a real business prospect</strong></div>
+                <div className="prospect-fields">
+                  <label>Business name<input value={prospectForm.business} onChange={e=>setProspectForm({...prospectForm,business:e.target.value})} placeholder="Business name" /></label>
+                  <label>Business type<select value={prospectForm.category} onChange={e=>setProspectForm({...prospectForm,category:e.target.value})}><option>Restaurant / cafe</option><option>Gym / fitness</option><option>Clothing / fashion</option><option>Beauty / barber</option><option>Hotel / guest house</option><option>Other small business</option></select></label>
+                  <label>City / country<input value={prospectForm.city} onChange={e=>setProspectForm({...prospectForm,city:e.target.value})} placeholder="e.g. Lisbon, Portugal"/></label>
+                  <label>Public source URL<input value={prospectForm.source} onChange={e=>setProspectForm({...prospectForm,source:e.target.value})} placeholder="Official website or public profile"/></label>
+                  <label>Design opportunity<input value={prospectForm.opportunity} onChange={e=>setProspectForm({...prospectForm,opportunity:e.target.value})} placeholder="Specific menu / poster / social need"/></label>
+                  <label>Public contact detail<input value={prospectForm.contact} onChange={e=>setProspectForm({...prospectForm,contact:e.target.value})} placeholder="Public email, phone or contact page"/></label>
+                  <label>Follow-up date<input type="date" value={prospectForm.followUp} onChange={e=>setProspectForm({...prospectForm,followUp:e.target.value})}/></label>
+                  <label>Research notes<input value={prospectForm.notes} onChange={e=>setProspectForm({...prospectForm,notes:e.target.value})} placeholder="What did you verify?"/></label>
+                </div>
+                <button className="primary-btn" onClick={addProspect} disabled={!prospectForm.business.trim()}><Plus size={15}/> Add to pipeline</button>
+              </section>
+              <div className="pipeline-heading"><div><span className="eyebrow">LIVE PIPELINE</span><h2>Your business opportunities</h2></div><span className="dashboard-hint">Move each prospect as you make progress</span></div>
+              {prospects.length===0 ? <div className="empty-state"><BriefcaseBusiness size={28}/><strong>Your pipeline is ready</strong><span>Add a business you have personally checked. We will keep its stage and follow-up date here.</span></div> : <div className="pipeline-grid">
+                {["New","Researched","Contacted","Interested","Won"].map(stage=><section className="pipeline-column" key={stage}><div className="pipeline-column-head"><strong>{stage}</strong><span>{prospects.filter(x=>x.stage===stage).length}</span></div>
+                  {prospects.filter(x=>x.stage===stage).map(prospect=><article className="prospect-card" key={prospect.id}>
+                    <strong>{prospect.business}</strong><span className="prospect-meta">{prospect.category} · {prospect.city}</span>
+                    {prospect.opportunity && <p>{prospect.opportunity}</p>}
+                    {prospect.followUp && <small className="follow-date">Follow up: {prospect.followUp}</small>}
+                    {prospect.source && <a href={prospect.source} target="_blank" rel="noreferrer">Open verified source ↗</a>}
+                    {prospect.contact && <small>{prospect.contact}</small>}
+                    <div className="prospect-controls"><select aria-label={"Move "+prospect.business+" to stage"} value={prospect.stage} onChange={e=>setProspects(prospects.map(x=>x.id===prospect.id?{...x,stage:e.target.value}:x))}>{["New","Researched","Contacted","Interested","Won","Lost"].map(s=><option key={s}>{s}</option>)}</select><button className="secondary-btn" onClick={()=>draftProspectOutreach(prospect)}>Draft message</button><button className="icon-btn" aria-label={"Delete "+prospect.business} onClick={()=>setProspects(prospects.filter(x=>x.id!==prospect.id))}><Trash2 size={14}/></button></div>
+                  </article>)}
+                </section>)}
+              </div>}
+              <div className="dashboard-note"><ShieldCheck size={15}/><span><strong>Privacy and control:</strong> prospects are stored only in this browser on this device. Drafting never sends a message. Export and cloud backup are not included yet.</span></div>
             </div>
           )}
 
