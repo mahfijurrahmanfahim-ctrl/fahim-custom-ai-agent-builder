@@ -104,3 +104,24 @@ button{cursor:pointer}
 .dashboard-note strong{color:#ddc88f}
 @media(max-width:900px){.dashboard-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:600px){.dashboard-heading{display:block}.dashboard-date{display:inline-flex;margin-top:15px}.dashboard-bottom{grid-template-columns:1fr}.dashboard-section-title{align-items:flex-start;flex-direction:column}.action-grid{grid-template-columns:1fr}.action-card{min-height:165px}.dashboard-stats{gap:8px}.stat-card{padding:12px}.stat-card>strong{font-size:21px}}
+
+
+/* Local-first prospect CRM */
+.pipeline-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:22px 0}
+.pipeline-stats>div{border:1px solid var(--line);background:var(--panel);border-radius:12px;padding:15px;display:grid;gap:6px}
+.pipeline-stats strong{font:800 24px Manrope;color:var(--gold2)}.pipeline-stats span{font-size:10px;color:var(--muted)}
+.prospect-form{border:1px solid #3a3327;background:linear-gradient(145deg,#15140f,#101114);border-radius:14px;padding:19px;margin:18px 0 28px}
+.prospect-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:17px 0}
+.prospect-fields label{display:grid;gap:6px;color:#b9b5aa;font-size:10px}
+.prospect-fields input,.prospect-fields select{width:100%;min-width:0;background:#0c0d0f;border:1px solid #33343a;border-radius:8px;color:var(--text);padding:11px;font:inherit;font-size:11px;outline:none}
+.prospect-fields input:focus,.prospect-fields select:focus{border-color:var(--gold)}
+.pipeline-heading{display:flex;justify-content:space-between;align-items:end;margin:20px 0 14px}.pipeline-heading h2{font:700 20px Manrope;margin:7px 0}
+.pipeline-grid{display:grid;grid-template-columns:repeat(5,minmax(190px,1fr));gap:10px;overflow-x:auto;padding-bottom:10px}
+.pipeline-column{background:#0e0f11;border:1px solid var(--line);border-radius:11px;padding:10px;min-height:180px}
+.pipeline-column-head{display:flex;justify-content:space-between;align-items:center;padding:5px 3px 12px;font-size:11px}.pipeline-column-head span{background:#25221a;color:var(--gold2);border-radius:20px;padding:3px 8px;font-size:10px}
+.prospect-card{display:grid;gap:7px;background:#17181b;border:1px solid #2b2c30;border-radius:9px;padding:11px;margin-bottom:9px;min-width:0}
+.prospect-card>strong{font-size:12px}.prospect-meta,.prospect-card small{font-size:9px;color:var(--muted);overflow-wrap:anywhere}
+.prospect-card p{font-size:10px;line-height:1.5;color:#d1c8b4;margin:0}.prospect-card a{font-size:9px;color:var(--gold2);text-decoration:none;overflow-wrap:anywhere}
+.follow-date{color:var(--gold2)!important}.prospect-controls{display:flex;align-items:center;gap:5px;margin-top:4px}.prospect-controls select{min-width:0;flex:1;background:#0d0e10;color:#ddd;border:1px solid #393a3f;border-radius:6px;padding:7px 5px;font-size:9px}.prospect-controls .secondary-btn{font-size:9px;padding:7px}.prospect-controls .icon-btn{width:27px;height:27px;flex-shrink:0}
+@media(max-width:800px){.pipeline-grid{grid-template-columns:repeat(5,220px)}}
+@media(max-width:600px){.pipeline-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.prospect-fields{grid-template-columns:1fr}.pipeline-heading{align-items:flex-start;flex-direction:column;gap:7px}.prospect-form{padding:14px}}
