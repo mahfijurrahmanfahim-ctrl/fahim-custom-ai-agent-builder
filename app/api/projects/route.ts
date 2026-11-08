@@ -2,62 +2,25 @@ import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const SYSTEM = "You are the creative director for Fahim Graphic Design, a freelance studio offering restaurant menus, social media design, photo editing, posters, banners and promotional videos. Create original, commercially realistic portfolio concepts achievable by one designer using Canva and AI-assisted creative tools. Label every concept self-initiated; never pretend it is a commissioned client project. Never invent menu items, prices, addresses, logos or contact details.";
-
-async function generateWithGemini(prompt: string) {
-  const key = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-  if (!key) throw new Error("Gemini key not configured");
-  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent?key=" + encodeURIComponent(key), {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ systemInstruction: { parts: [{ text: SYSTEM }] }, contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.85, maxOutputTokens: 3500 } }), cache: "no-store"
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error("Gemini: " + (data?.error?.message || "request failed"));
-  const answer = data?.candidates?.[0]?.content?.parts?.map((p: {text?: string}) => p.text || "").join("").trim();
-  if (!answer) throw new Error("Gemini returned no content");
-  return { answer, model };
-}
-
-async function generateOpenAI(provider: "groq" | "openrouter", prompt: string) {
-  const key = provider === "groq" ? process.env.GROQ_API_KEY : process.env.OPENROUTER_API_KEY;
-  if (!key) throw new Error(provider + " key not configured");
-  const model = provider === "groq" ? (process.env.GROQ_MODEL || "llama-3.3-70b-versatile") : (process.env.OPENROUTER_MODEL || "openrouter/auto");
-  const endpoint = provider === "groq" ? "https://api.groq.com/openai/v1/chat/completions" : "https://openrouter.ai/api/v1/chat/completions";
-  const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer " + key }, body: JSON.stringify({ model, messages: [{ role: "system", content: SYSTEM }, { role: "user", content: prompt }], temperature: 0.85, max_tokens: 3500 }), cache: "no-store" });
-  const data = await response.json();
-  if (!response.ok) throw new Error(provider + ": " + (data?.error?.message || "request failed"));
-  const answer = data?.choices?.[0]?.message?.content?.trim();
-  if (!answer) throw new Error(provider + " returned no content");
-  return { answer, model: provider + "/" + model };
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const focus = String(body.focus || "restaurant and cafe design").slice(0, 160);
-    const prompt = [
-      "Create exactly 3 original portfolio-ready design project briefs focused on: " + focus + ".",
-      "For each project provide: title; target business/client type; objective; deliverables with specific counts and formats; art direction (palette, typography mood, composition, photography); exact production checklist; and a short portfolio case-study caption.",
-      "Make each brief detailed enough to start creating immediately. Include realistic constraints and a distinct creative angle.",
-      "Return clean markdown with clear headings."
+    const answer = [
+      "## 1. Signature brand campaign",
+      "**Focus:** " + focus + "\n**Objective:** Create a cohesive visual identity campaign for a fictional concept brand, clearly labelled as a self-initiated portfolio project.\n**Deliverables:** 1 hero poster, 3 social posts, 3 story frames and 1 profile cover.\n**Art direction:** Premium black-and-gold palette, strong product photography, clean modern typography and consistent spacing.\n**Checklist:** Define a fictional brand name; create a simple visual system; design each format; check mobile legibility; export web-ready files.\n**Case-study note:** Self-initiated visual campaign exploring a consistent brand system across social formats.",
+      "",
+      "## 2. Promotional offer layout system",
+      "**Focus:** " + focus + "\n**Objective:** Show how one campaign idea adapts to multiple placements without changing the core message.\n**Deliverables:** 1 A4 poster, 1 square post, 1 portrait post and 1 story.\n**Art direction:** One focal image, bold headline, restrained supporting copy and a clear CTA.\n**Checklist:** Write placeholder copy; establish hierarchy; adapt layouts; test contrast; export PNG and PDF. Do not invent real prices, offers or business details.\n**Case-study note:** Self-initiated layout study demonstrating flexible promotional design.",
+      "",
+      "## 3. Social content mini-series",
+      "**Focus:** " + focus + "\n**Objective:** Build a recognisable 5-post series that makes a service or product easy to understand.\n**Deliverables:** 5 carousel or single-image posts, 5 captions and 5 matching story covers.\n**Art direction:** Consistent grid, typography pairing, repeatable colour palette and varied imagery.\n**Checklist:** Choose one audience; assign one message per post; design a reusable template; proofread; export and organise source files.\n**Case-study note:** Self-initiated content series focused on clarity, consistency and brand recognition.",
+      "",
+      "**Portfolio honesty:** These are practice concepts, not commissioned client work. Use fictional brands or supplied real assets with permission. Never present them as paid client projects."
     ].join("\n");
-    const providers = [
-      () => generateWithGemini(prompt),
-      () => generateOpenAI("groq", prompt),
-      () => generateOpenAI("openrouter", prompt)
-    ];
-    const failures: string[] = [];
-    for (const provider of providers) {
-      try {
-        const result = await provider();
-        return NextResponse.json({ ...result, createdAt: new Date().toISOString() });
-      } catch (error) {
-        failures.push(error instanceof Error ? error.message : "Provider failed");
-      }
-    }
-    return NextResponse.json({ error: "All configured AI providers failed. Check your Vercel API keys and available quotas. " + failures.join(" | ") }, { status: 502 });
+
+    return NextResponse.json({ answer, model: "Free built-in project templates — no API key", createdAt: new Date().toISOString() });
   } catch {
-    return NextResponse.json({ error: "Could not generate project briefs. Please try again." }, { status: 500 });
+    return NextResponse.json({ error: "Could not prepare project brief templates." }, { status: 500 });
   }
 }
