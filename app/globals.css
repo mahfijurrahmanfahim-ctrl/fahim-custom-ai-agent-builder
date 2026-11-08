@@ -34,3 +34,25 @@ button{cursor:pointer}
 .scrim{display:none}
 @media(max-width:800px){.sidebar{position:fixed;left:0;top:0;bottom:0;width:275px;transform:translateX(-105%);transition:transform .22s;box-shadow:15px 0 45px #0008}.sidebar-open{transform:translateX(0)}.mobile-close{display:grid;margin-left:auto}.menu-btn{display:grid}.scrim{display:block;position:fixed;inset:0;z-index:4;background:#0009;border:0}.topbar{padding:0 17px}.content-area{padding:38px 20px 25px}.footer{padding:13px 18px;gap:10px;flex-wrap:wrap}.info-grid{grid-template-columns:1fr}.welcome-block h1,.page-section h1{font-size:31px}}
 @media(max-width:480px){.starter-grid,.studio-grid{grid-template-columns:1fr}.welcome-block{padding-top:0}.content-area{padding:28px 15px 20px}.top-right .status-text{display:none}.feature-panel{padding:17px;gap:12px}.footer{font-size:7px}.composer-note{font-size:8px}}
+
+
+/* Live client research */
+.lead-form{display:grid;gap:9px;flex:1;min-width:0}
+.lead-form h3{margin-bottom:5px}
+.lead-form label{font-size:10px;color:#c9b98f;margin-top:4px}
+.lead-form input,.lead-form select{width:100%;max-width:460px;background:#0d0e10;border:1px solid #49402e;border-radius:8px;padding:11px 12px;color:#eee9dc;font:12px inherit;outline:none}
+.lead-form input:focus,.lead-form select:focus{border-color:#b18b4c}
+.lead-form .primary-btn{justify-self:start;margin-top:7px;cursor:pointer}
+.lead-form .primary-btn:disabled{opacity:.55;cursor:wait}
+.lead-disclaimer{font-size:10px!important;color:#89857a!important;margin:3px 0 0!important}
+.lead-results{margin-top:20px;border:1px solid #383124;background:#111214;border-radius:13px;padding:19px}
+.results-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.results-heading h3{font:600 15px Manrope;margin:0 0 5px}
+.results-heading span{font-size:9px;color:#8d897f}
+.lead-answer{white-space:pre-wrap;overflow-wrap:anywhere;color:#dedbd2;font:12px/1.8 inherit;margin:18px 0;max-height:620px;overflow:auto}
+.source-list{display:grid;gap:8px;border-top:1px solid #302d26;padding-top:14px}
+.source-list strong{font-size:10px;color:#d8c28e;margin-bottom:3px}
+.source-list a{font-size:10px;color:#c6ad76;text-decoration:none;overflow-wrap:anywhere}
+.source-list a:hover{text-decoration:underline}
+.error-panel{margin-top:18px;padding:13px;border:1px solid #65403a;background:#211514;color:#e1aaa0;border-radius:9px;font-size:11px;line-height:1.6}
+@media(max-width:480px){.results-heading .secondary-btn{width:100%}.lead-results{padding:14px}}
