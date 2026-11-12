@@ -62,7 +62,8 @@ def benchmark_provider(name, cfg, model, prompt, key="", runs=10):
         row["run"] = index + 1
         results.append(row)
         if index < runs - 1:
-            time.sleep(1.0)
+            # OVHcloud anonymous limit: 2 requests/minute per IP and model.
+            time.sleep(31.0 if name.startswith("OVHcloud") else 1.0)
     return results
 
 def test_provider(name, cfg, model, prompt, key="", account_id=""):
