@@ -11,35 +11,43 @@ permissions:
 
 jobs:
   discover:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7.0.1
+
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.11"
           cache: pip
+
       - name: Install research dependencies
         run: pip install -r client_hunter_requirements.txt
+
       - name: Find and verify public business prospects
         env:
           MAX_LEADS: "8"
         run: python client_hunter.py
+
       - name: Add report to workflow summary
         if: always()
         run: |
           if [ -f out/prospects.md ]; then
             cat out/prospects.md >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Client discovery did not produce a report. Check job logs." >> "$GITHUB_STEP_SUMMARY"
+            echo "Client discovery did not produce a Markdown report. Check job logs." >> "$GITHUB_STEP_SUMMARY"
           fi
+
       - name: Upload prospect reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: fahim-client-prospects-${{ github.run_number }}
-          path: out/prospects.*
-          if-no-files-found: warn
+          path: |
+            out/prospects.md
+            out/prospects.csv
+            out/prospects.json
+          if-no-files-found: error
           retention-days: 30
