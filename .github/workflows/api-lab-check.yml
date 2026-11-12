@@ -1,4 +1,4 @@
-name: API Lab syntax check
+name: API Lab live smoke tests
 
 on:
   push:
@@ -6,16 +6,20 @@ on:
     paths:
       - "api-lab/**"
       - ".github/workflows/api-lab-check.yml"
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  compile:
+  live-api-test:
     runs-on: ubuntu-latest
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install test dependency
+        run: python -m pip install requests
       - name: Compile Streamlit app
-        run: python -m py_compile api-lab/app.py
+        run: python -m py_compile api-lab/app.py api-lab/smoke_test.py
+      - name: Test OVH public catalogue and anonymous inference
+        run: python api-lab/smoke_test.py
