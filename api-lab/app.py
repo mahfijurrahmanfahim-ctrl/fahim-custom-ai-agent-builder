@@ -55,6 +55,16 @@ def flatten(data):
 def result_row(name, status, code, elapsed, model, answer="", detail=""):
     return {"provider":name,"status":status,"http":code,"latency_ms":elapsed,"model":model,"answer":str(answer)[:1200],"detail":str(detail)[:1000]}
 
+def benchmark_provider(name, cfg, model, prompt, key="", runs=10):
+    results = []
+    for index in range(runs):
+        row = test_provider(name, cfg, model, prompt, key)
+        row["run"] = index + 1
+        results.append(row)
+        if index < runs - 1:
+            time.sleep(1.0)
+    return results
+
 def test_provider(name, cfg, model, prompt, key="", account_id=""):
     start = time.perf_counter()
     try:
@@ -183,6 +193,44 @@ with test_tab:
         st.caption(result["detail"])
         if result["answer"]:
             st.code(result["answer"])
+
+
+    st.divider()
+    st.subheader("Six-provider repeat benchmark")
+    st.caption("Runs 10 small chat requests per provider (60 total). Enter your own keys; they are not saved to disk or database.")
+    gemini_key = st.text_input("Gemini API key for benchmark", type="password", key="bench_gemini_key")
+    groq_key = st.text_input("Groq API key for benchmark", type="password", key="bench_groq_key")
+    openrouter_key = st.text_input("OpenRouter API key for benchmark", type="password", key="bench_openrouter_key")
+    benchmark_names = ["Groq", "Google Gemini", "OpenRouter free models", "OVHcloud AI — anonymous", "Kilo Gateway — anonymous free models", "Pollinations — openai-fast"]
+    if st.button("Run 10 tests per provider (60 requests)", type="primary", use_container_width=True):
+        credentials = {"Groq": groq_key.strip(), "Google Gemini": gemini_key.strip(), "OpenRouter free models": openrouter_key.strip()}
+        missing = [name for name, value in credentials.items() if not value]
+        if missing:
+            st.error("Enter your own keys for: " + ", ".join(missing))
+        else:
+            all_rows = []
+            progress = st.progress(0, text="Preparing benchmark...")
+            total = len(benchmark_names) * 10
+            count = 0
+            for provider_name in benchmark_names:
+                provider_cfg = PROVIDERS[provider_name]
+                rows = benchmark_provider(provider_name, provider_cfg, provider_cfg["model"], "Reply with exactly: OK", credentials.get(provider_name, ""), runs=10)
+                for row in rows:
+                    all_rows.append(row)
+                    count += 1
+                    progress.progress(count / total, text=f"Testing {provider_name}: {count}/{total}")
+            st.session_state.benchmark_rows = all_rows
+            st.session_state.setdefault("history", []).extend(reversed(all_rows))
+            progress.empty()
+            st.success("Benchmark finished. Review the results below.")
+    if st.session_state.get("benchmark_rows"):
+        bdf = pd.DataFrame(st.session_state.benchmark_rows)
+        summary = bdf.groupby("provider").agg(attempts=("status", "count"), passes=("status", lambda x: int((x == "PASS").sum())), avg_ms=("latency_ms", "mean"), median_ms=("latency_ms", "median"), min_ms=("latency_ms", "min"), max_ms=("latency_ms", "max")).reset_index()
+        summary["success_rate_%"] = (summary["passes"] / summary["attempts"] * 100).round(1)
+        for col in ["avg_ms", "median_ms", "min_ms", "max_ms"]:
+            summary[col] = summary[col].round(0).astype("Int64")
+        st.dataframe(summary.sort_values(["success_rate_%", "median_ms"], ascending=[False, True]), use_container_width=True, hide_index=True)
+        st.download_button("Download benchmark detail CSV", bdf.to_csv(index=False).encode(), "fahim-six-provider-benchmark.csv", "text/csv")
 
 with history_tab:
     history = st.session_state.get("history",[])
