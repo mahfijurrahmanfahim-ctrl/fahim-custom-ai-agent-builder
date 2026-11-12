@@ -1,0 +1,6 @@
+{
+  "live_catalogue": "https://freeinference.dev/data/providers.json",
+  "catalogue_repository": "https://github.com/surendranb/free-inference",
+  "additional_provider_list": "https://github.com/mnfst/awesome-free-llm-apis",
+  "note": "Catalogue is fetched live; test adapters are explicitly defined in api-lab/app.py."
+}
