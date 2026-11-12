@@ -3,7 +3,29 @@ import requests
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="FAHIM Free API Lab", page_icon="🧪", layout="wide")
+st.set_page_config(page_title="FAHIM AI Studio", page_icon="⚡", layout="wide")
+
+st.markdown("""
+<style>
+:root { --gold:#d8b45a; }
+.stApp { background: radial-gradient(ellipse at 12% 0%, rgba(216,180,90,.13), transparent 34%), linear-gradient(155deg,#090b10 0%,#111722 55%,#090b10 100%); }
+.block-container { max-width: 1320px; padding-top: 2rem; padding-bottom: 3rem; }
+h1 { letter-spacing: -.045em; font-weight: 850 !important; }
+[data-testid="stMetric"] { background:linear-gradient(145deg,rgba(255,255,255,.07),rgba(255,255,255,.025)); border:1px solid rgba(216,180,90,.22); padding:16px 18px; border-radius:16px; }
+.stButton>button, .stDownloadButton>button { border-radius:12px; border:1px solid rgba(216,180,90,.45); transition:all .18s ease; }
+.stButton>button[kind="primary"] { background:linear-gradient(100deg,#b68b35,#f0d48a); color:#111; font-weight:800; border:0; }
+.stButton>button:hover { transform:translateY(-1px); border-color:#f0d48a; }
+div[data-baseweb="tab-list"] { gap:8px; }
+button[data-baseweb="tab"] { border-radius:10px 10px 0 0; padding:12px 18px; }
+div[data-testid="stExpander"] { border:1px solid rgba(216,180,90,.18); border-radius:12px; }
+.hero { padding:26px 28px; border:1px solid rgba(216,180,90,.32); border-radius:20px; background:linear-gradient(115deg,rgba(216,180,90,.13),rgba(255,255,255,.025)); margin:8px 0 22px; }
+.hero-kicker { color:#e1c477; text-transform:uppercase; letter-spacing:.22em; font-size:11px; font-weight:800; }
+.hero-title { font-size:clamp(30px,5vw,48px); line-height:1.04; font-weight:900; margin:10px 0; }
+.hero-sub { color:#b9c0cb; font-size:14px; }
+div[data-testid="stTextArea"] textarea { border-radius:14px; }
+</style>
+""", unsafe_allow_html=True)
+
 CATALOG_URL = "https://freeinference.dev/data/providers.json"
 TIMEOUT = 25
 
@@ -107,11 +129,87 @@ def test_provider(name, cfg, model, prompt, key="", account_id=""):
     except Exception as exc:
         return result_row(name, "ERROR", "", round((time.perf_counter()-start)*1000), model, "", repr(exc))
 
-st.title("FAHIM FREE API LAB")
-st.caption("Independent free AI provider catalogue and live API tester · Created by Fahim")
+st.markdown("""<div class="hero"><div class="hero-kicker">Fahim · Personal AI workspace</div><div class="hero-title">FAHIM AI STUDIO</div><div class="hero-sub">One workspace for real AI requests, provider testing and free-tier discovery.</div></div>""", unsafe_allow_html=True)
+st.caption("Created by Fahim · Free-first infrastructure · No bundled or shared API keys")
 st.warning("No shared or leaked API keys are included. Enter only keys from your own provider accounts. This app does not write keys to files or a database; they are held in the active Streamlit session for the request. Use a trusted/private deployment.")
 
-catalog_tab, test_tab, history_tab = st.tabs(["Provider catalogue", "Live API tests", "Test history"])
+workspace_tab, catalog_tab, test_tab, history_tab = st.tabs(["⚡ AI Workspace", "Provider catalogue", "Live API tests", "Test history"])
+
+
+with workspace_tab:
+    st.subheader("Command centre")
+    st.caption("Send one prompt. The workspace tries configured providers in order and reports exactly which one answered.")
+    w1, w2, w3 = st.columns(3)
+    with w1:
+        wk_groq = st.text_input("Groq key (optional)", type="password", key="workspace_groq")
+    with w2:
+        wk_gemini = st.text_input("Gemini key (optional)", type="password", key="workspace_gemini")
+    with w3:
+        wk_openrouter = st.text_input("OpenRouter key (optional)", type="password", key="workspace_openrouter")
+    command = st.text_area("What do you want the AI to do?", placeholder="Example: Create 5 premium Instagram campaign ideas for a small café in Porto...", height=130, key="workspace_command")
+    run_col, clear_col = st.columns([3,1])
+    with run_col:
+        run_command = st.button("Run command  →", type="primary", use_container_width=True, key="workspace_run")
+    with clear_col:
+        if st.button("Clear", use_container_width=True, key="workspace_clear"):
+            st.session_state.workspace_command = ""
+            st.session_state.pop("workspace_result", None)
+            st.rerun()
+    if run_command:
+        if not command.strip():
+            st.warning("Enter a command first.")
+        else:
+            queue = []
+            if wk_groq.strip():
+                queue.append(("Groq", PROVIDERS["Groq"], PROVIDERS["Groq"]["model"], wk_groq.strip()))
+            if wk_gemini.strip():
+                queue.append(("Google Gemini", PROVIDERS["Google Gemini"], PROVIDERS["Google Gemini"]["model"], wk_gemini.strip()))
+            if wk_openrouter.strip():
+                queue.append(("OpenRouter free models", PROVIDERS["OpenRouter free models"], PROVIDERS["OpenRouter free models"]["model"], wk_openrouter.strip()))
+            queue.extend([
+                ("OVHcloud AI — anonymous", PROVIDERS["OVHcloud AI — anonymous"], PROVIDERS["OVHcloud AI — anonymous"]["model"], ""),
+                ("Kilo Gateway — anonymous free models", PROVIDERS["Kilo Gateway — anonymous free models"], PROVIDERS["Kilo Gateway — anonymous free models"]["model"], "")
+            ])
+            attempts = []
+            answer = ""
+            progress = st.progress(0, text="Connecting to available AI providers...")
+            for idx, (provider_name, provider_cfg, model_id, api_key) in enumerate(queue):
+                result = test_provider(provider_name, provider_cfg, model_id, command.strip(), api_key)
+                attempts.append(result)
+                progress.progress((idx + 1) / len(queue), text=f"Trying {provider_name} · {idx + 1}/{len(queue)}")
+                if result["status"] == "PASS" and result["answer"].strip():
+                    answer = result["answer"]
+                    st.session_state.workspace_result = {"answer":answer,"provider":provider_name,"model":model_id,"latency":result["latency_ms"],"attempts":attempts}
+                    break
+            progress.empty()
+            if not answer:
+                st.session_state.workspace_result = {"answer":"","provider":"","model":"","latency":"","attempts":attempts}
+    if st.session_state.get("workspace_result"):
+        wr = st.session_state.workspace_result
+        st.divider()
+        if wr["answer"]:
+            st.success("Response received · " + wr["provider"])
+            st.markdown(wr["answer"])
+            st.caption(f"Model: {wr['model']} · Response time: {wr['latency']} ms · Providers tried: {len(wr['attempts'])}")
+        else:
+            st.error("No provider returned a usable answer. See the attempts below; no response has been fabricated.")
+        with st.expander("Provider diagnostics"):
+            st.dataframe(pd.DataFrame(wr["attempts"])[["provider","status","http","latency_ms","model","detail"]], use_container_width=True, hide_index=True)
+    st.divider()
+    st.subheader("Creative tools")
+    ci, cv, cs = st.columns(3)
+    with ci:
+        st.markdown("**Image generation**")
+        st.caption("Not connected to a verified free image API in this build. No fake Generate button.")
+        st.link_button("Open free image workspace", "https://huggingface.co/spaces", use_container_width=True)
+    with cv:
+        st.markdown("**Video generation**")
+        st.caption("Use a public hosted generation queue; wait times and availability vary.")
+        st.link_button("Explore Wan video demo", "https://wan.video/", use_container_width=True)
+    with cs:
+        st.markdown("**Web research**")
+        st.caption("Search provider integration is not configured yet. Open a real search engine.")
+        st.link_button("Open web search", "https://www.google.com/", use_container_width=True)
 
 with catalog_tab:
     c1, c2 = st.columns([3,1])
