@@ -9,7 +9,7 @@ TIMEOUT = 25
 
 PROVIDERS = {
     "LLM7 — anonymous (no key)": {"kind":"openai","url":"https://api.llm7.io/v1","model":"gpt-oss:20b","auth":"none","note":"Anonymous access is listed upstream; shared capacity and throttling apply."},
-    "OVHcloud AI — anonymous": {"kind":"openai","url":"https://oai.endpoints.kepler.ai.cloud.ovh.net/v1","model":"openai/gpt-oss-20b","auth":"none","note":"Anonymous access is listed upstream at 2 requests/minute per IP/model; availability can vary."},
+    "OVHcloud AI — anonymous": {"kind":"openai","url":"https://oai.endpoints.kepler.ai.cloud.ovh.net/v1","model":"gpt-oss-20b","auth":"none","note":"Anonymous access is listed upstream at 2 requests/minute per IP/model; availability can vary."},
     "Google Gemini": {"kind":"openai","url":"https://generativelanguage.googleapis.com/v1beta/openai","model":"gemini-3.5-flash-lite","auth":"key","note":"Your own AI Studio key required. Check current EU terms and quotas."},
     "Groq": {"kind":"openai","url":"https://api.groq.com/openai/v1","model":"openai/gpt-oss-20b","auth":"key","note":"Free account/key required; quotas vary by model."},
     "OpenRouter free models": {"kind":"openai","url":"https://openrouter.ai/api/v1","model":"openrouter/free","auth":"key","note":"Your own key required; free-model daily limits apply."},
