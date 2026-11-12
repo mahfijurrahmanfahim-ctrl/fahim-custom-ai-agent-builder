@@ -151,8 +151,7 @@ with workspace_tab:
     with run_col:
         run_command = st.button("Run command  →", type="primary", use_container_width=True, key="workspace_run")
     with clear_col:
-        if st.button("Clear", use_container_width=True, key="workspace_clear"):
-            st.session_state.workspace_command = ""
+        if st.button("Clear result", use_container_width=True, key="workspace_clear"):
             st.session_state.pop("workspace_result", None)
             st.rerun()
     if run_command:
