@@ -92,6 +92,10 @@ Your responsibilities:
 - Analyse supplied documents and supported media.
 - Never invent facts, prices, links or search results.
 - Clearly explain uncertainty.
+- If live search results are supplied, use them and identify relevant dates.
+- If live search fails or returns no results, say only that live search
+  did not return usable results for this request. Do not claim that you
+  cannot browse the web in general, and do not invent a training cutoff.
 - Do not claim to have viewed an image or file unless it
   was actually supplied to a model that supports it.
 """
@@ -1096,9 +1100,9 @@ def search_web(query):
         raise RuntimeError("The ddgs package is unavailable in this deployment.")
 
     try:
-
-        with DDGS() as ddgs:
-
+        # Bound search latency so a slow search endpoint cannot hold
+        # the entire chat request for an extended period.
+        with DDGS(timeout=6) as ddgs:
             results = list(
                 ddgs.text(
                     query,
@@ -1109,16 +1113,28 @@ def search_web(query):
         cleaned = []
 
         for item in results:
-
-            cleaned.append({
-                "title": item.get("title", ""),
-                "url": item.get("href", ""),
-                "body": item.get("body", "")
-            })
+            if not isinstance(item, dict):
+                continue
+            href = item.get("href") or item.get("url") or ""
+            title = item.get("title") or ""
+            body = item.get("body") or item.get("snippet") or ""
+            if title or href or body:
+                cleaned.append({
+                    "title": title,
+                    "url": href,
+                    "body": body
+                })
 
         return cleaned
 
     except Exception as error:
+        message = str(error).lower()
+
+        # DDGS raises an exception for an ordinary empty result set.
+        # Treat that as "no results", not as a broken browsing capability.
+        if "no results found" in message or "no results" == message.strip():
+            return []
+
         raise RuntimeError("DuckDuckGo search failed: " + str(error)) from error
 
 
