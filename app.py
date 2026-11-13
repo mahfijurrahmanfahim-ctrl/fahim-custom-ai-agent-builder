@@ -1099,43 +1099,49 @@ def search_web(query):
     if not DDGS_AVAILABLE:
         raise RuntimeError("The ddgs package is unavailable in this deployment.")
 
-    try:
-        # Bound search latency so a slow search endpoint cannot hold
-        # the entire chat request for an extended period.
-        with DDGS(timeout=6) as ddgs:
-            results = list(
-                ddgs.text(
-                    query,
-                    max_results=5
+    # DuckDuckGo's automatic backend can intermittently return no results
+    # or rate-limit requests. Try independent providers before reporting
+    # that live search has no usable results.
+    backend_errors = []
+    for backend in ("auto", "bing", "brave"):
+        try:
+            with DDGS(timeout=3) as ddgs:
+                results = list(
+                    ddgs.text(
+                        query,
+                        max_results=5,
+                        backend=backend
+                    )
                 )
-            )
 
-        cleaned = []
+            cleaned = []
+            for item in results:
+                if not isinstance(item, dict):
+                    continue
+                href = item.get("href") or item.get("url") or ""
+                title = item.get("title") or ""
+                body = item.get("body") or item.get("snippet") or ""
+                if title or href or body:
+                    cleaned.append({
+                        "title": title,
+                        "url": href,
+                        "body": body
+                    })
 
-        for item in results:
-            if not isinstance(item, dict):
-                continue
-            href = item.get("href") or item.get("url") or ""
-            title = item.get("title") or ""
-            body = item.get("body") or item.get("snippet") or ""
-            if title or href or body:
-                cleaned.append({
-                    "title": title,
-                    "url": href,
-                    "body": body
-                })
+            if cleaned:
+                return cleaned
 
-        return cleaned
+        except Exception as error:
+            backend_errors.append(f"{backend}: {error}")
 
-    except Exception as error:
-        message = str(error).lower()
+    # Empty results from all providers are not evidence that browsing is
+    # unavailable. Return an empty list so the UI can state this precisely.
+    if backend_errors:
+        raise RuntimeError(
+            "All live-search providers failed: " + " | ".join(backend_errors)
+        )
 
-        # DDGS raises an exception for an ordinary empty result set.
-        # Treat that as "no results", not as a broken browsing capability.
-        if "no results found" in message or "no results" == message.strip():
-            return []
-
-        raise RuntimeError("DuckDuckGo search failed: " + str(error)) from error
+    return []
 
 
 def format_web_results(results):
