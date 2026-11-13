@@ -4,6 +4,19 @@
 
 Create your own AI assistant using your personal profile, business information, skills, and custom instructions.
 
+## 💼 Business Growth Workspace
+
+FAHIM AI includes a revenue-focused Client Finder for Fahim Graphic Design.
+
+- Search public web results for independent businesses in Portugal or the UK.
+- Target cafes/restaurants, salons/barbers, gyms, boutiques and other small businesses.
+- Review source links and search snippets before treating a result as a lead.
+- Prepare a tailored outreach prompt for each prospect.
+- No automatic messages are sent.
+- Search results are leads to verify, not confirmed buying intent.
+
+The app's Auto provider routing excludes Claude because Claude API use may incur charges. OpenRouter discovery only selects models whose published prompt and completion prices are both zero. This is a pricing filter, not a guarantee against every possible provider-side charge; keep provider spending limits enabled.
+
 ## 🚀 Features
 
 - Create personalized AI assistants.
