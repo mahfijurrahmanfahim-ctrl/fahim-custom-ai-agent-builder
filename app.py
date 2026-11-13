@@ -1093,26 +1093,69 @@ def extract_text_from_files(uploaded_files):
 # WEB SEARCH
 # ================================================================
 
+def search_news_rss(query):
+    """Fetch real-time news from public RSS feeds without an API key."""
+    from urllib.parse import quote_plus
+    import xml.etree.ElementTree as ET
+
+    feeds = [
+        "https://news.google.com/rss/search?q=" + quote_plus(query) + "&hl=en-US&gl=US&ceid=US:en",
+        "https://www.bing.com/news/search?q=" + quote_plus(query) + "&format=rss"
+    ]
+
+    for feed_url in feeds:
+        try:
+            response = requests.get(
+                feed_url,
+                headers={"User-Agent": "Mozilla/5.0 FAHIM-AI/1.0"},
+                timeout=4
+            )
+            response.raise_for_status()
+            root = ET.fromstring(response.content)
+            items = []
+            for item in root.findall(".//item")[:5]:
+                title = item.findtext("title") or ""
+                link = item.findtext("link") or ""
+                description = item.findtext("description") or ""
+                published = item.findtext("pubDate") or ""
+                if title and link:
+                    items.append({
+                        "title": title,
+                        "url": link,
+                        "body": description,
+                        "published": published
+                    })
+            if items:
+                return items
+        except Exception:
+            continue
+    return []
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def search_web(query):
 
     if not DDGS_AVAILABLE:
         raise RuntimeError("The ddgs package is unavailable in this deployment.")
 
-    # DuckDuckGo's automatic backend can intermittently return no results
-    # or rate-limit requests. Try independent providers before reporting
-    # that live search has no usable results.
+    # For news/current-events requests, use live RSS feeds first. This
+    # avoids DuckDuckGo's intermittent empty-result response and needs
+    # no paid API key.
+    q = query.lower()
+    news_intent = any(term in q for term in (
+        "news", "latest", "today", "breaking", "this week",
+        "recent updates", "current events"
+    ))
+    if news_intent:
+        rss_results = search_news_rss(query)
+        if rss_results:
+            return rss_results
+
     backend_errors = []
     for backend in ("auto", "bing", "brave"):
         try:
             with DDGS(timeout=3) as ddgs:
-                results = list(
-                    ddgs.text(
-                        query,
-                        max_results=5,
-                        backend=backend
-                    )
-                )
+                results = list(ddgs.text(query, max_results=5, backend=backend))
 
             cleaned = []
             for item in results:
@@ -1122,25 +1165,22 @@ def search_web(query):
                 title = item.get("title") or ""
                 body = item.get("body") or item.get("snippet") or ""
                 if title or href or body:
-                    cleaned.append({
-                        "title": title,
-                        "url": href,
-                        "body": body
-                    })
-
+                    cleaned.append({"title": title, "url": href, "body": body})
             if cleaned:
                 return cleaned
-
         except Exception as error:
+            message = str(error).lower()
+            if "no results found" in message or "no results" == message.strip():
+                continue
             backend_errors.append(f"{backend}: {error}")
 
-    # Empty results from all providers are not evidence that browsing is
-    # unavailable. Return an empty list so the UI can state this precisely.
-    if backend_errors:
-        raise RuntimeError(
-            "All live-search providers failed: " + " | ".join(backend_errors)
-        )
+    if news_intent:
+        # RSS sources were also checked; do not misrepresent an empty
+        # result set as a general inability to browse.
+        return []
 
+    if backend_errors:
+        raise RuntimeError("All live-search providers failed: " + " | ".join(backend_errors))
     return []
 
 
