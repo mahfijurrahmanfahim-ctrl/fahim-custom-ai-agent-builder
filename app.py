@@ -73,7 +73,7 @@ st.set_page_config(
 # ================================================================
 
 APP_NAME = "FAHIM AI"
-APP_VERSION = "6.2"
+APP_VERSION = "6.3"
 
 NARA_BASE_URL = "https://router.bynara.id/v1"
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
@@ -1756,14 +1756,14 @@ with st.sidebar:
           <div class="fahim-brand-icon">✦</div>
           <div>
             <div class="fahim-brand-name">FAHIM AI</div>
-            <div class="fahim-brand-sub">PERSONAL AI WORKSPACE · v6.1</div>
+            <div class="fahim-brand-sub">PERSONAL BUSINESS WORKSPACE · v6.3</div>
           </div>
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    st.caption("Your multi-model assistant")
+    st.caption("Your personal business growth assistant")
 
     st.divider()
 
@@ -1981,9 +1981,9 @@ with st.sidebar:
 st.markdown(
     """
     <section class="fahim-hero">
-      <div class="fahim-kicker">Your personal AI workspace</div>
-      <h1>Meet your smarter assistant.</h1>
-      <p>One workspace for conversations, research, documents and creative work — powered by your connected AI models.</p>
+      <div class="fahim-kicker">Your personal business growth workspace</div>
+      <h1>Find clients. Win work. Create better designs.</h1>
+      <p>Discover potential clients, prepare tailored offers and build professional creative work for Fahim Graphic Design.</p>
     </section>
     """,
     unsafe_allow_html=True
