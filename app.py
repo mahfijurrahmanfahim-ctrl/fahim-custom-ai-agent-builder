@@ -1330,6 +1330,21 @@ def process_ai_request(
 
     uploaded_files = uploaded_files or []
 
+    # Handle simple greetings locally. Do not spend an external
+    # model request, provider discovery, or network round-trip on "hi".
+    if not uploaded_files:
+        greeting = prompt.strip().lower().strip("!.,? ")
+        greetings = {
+            "hi", "hello", "hey", "hiya", "howdy",
+            "good morning", "good afternoon", "good evening",
+            "salam", "assalamu alaikum", "আসসালামু আলাইকুম",
+            "হাই", "হ্যালো"
+        }
+        if greeting in greetings:
+            st.session_state.last_provider = "FAHIM AI"
+            st.session_state.last_model = "Instant local greeting"
+            return "Hello! What would you like to work on?"
+
     web_context = ""
 
     # Explicit search requests trigger live search even when
