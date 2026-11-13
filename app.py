@@ -1203,6 +1203,46 @@ def format_web_results(results):
 
 
 # ================================================================
+# BUSINESS PROSPECT SEARCH
+# ================================================================
+
+def search_business_prospects(country, city, business_type):
+    """Find public search-result leads; never invent contact details."""
+    if not DDGS_AVAILABLE:
+        raise RuntimeError("The ddgs package is unavailable in this deployment.")
+
+    place = ", ".join(part for part in (city.strip(), country.strip()) if part)
+    queries = [
+        f"independent {business_type} {place} small business",
+        f"{business_type} {place} menu website social media",
+        f"local {business_type} {place} contact"
+    ]
+
+    collected = []
+    seen = set()
+    for query in queries:
+        try:
+            results = search_web(query)
+        except Exception:
+            continue
+        for item in results:
+            url = (item.get("url") or "").strip()
+            title = (item.get("title") or "").strip()
+            if not url or not title or url in seen:
+                continue
+            seen.add(url)
+            collected.append({
+                "title": title,
+                "url": url,
+                "body": (item.get("body") or "").strip(),
+                "search_query": query
+            })
+            if len(collected) >= 12:
+                return collected
+    return collected
+
+
+# ================================================================
 # IMAGE SEARCH
 # ================================================================
 
@@ -1296,13 +1336,12 @@ def prepare_messages(user_prompt, web_context=""):
 
 def run_text_providers(messages):
 
-    # Free-first routing: try NaraRouter, then Groq and OpenRouter;
-    # Claude remains the final fallback because its API may be paid.
+    # Auto mode deliberately excludes providers that may incur charges.
+    # Claude is available only when the user explicitly selects it.
     provider_order = [
         ("NaraRouter", generate_nara),
         ("Groq", generate_groq),
-        ("OpenRouter", generate_openrouter),
-        ("Claude", generate_claude)
+        ("OpenRouter", generate_openrouter)
     ]
 
     selected = st.session_state.get("provider", "Auto")
@@ -1744,6 +1783,8 @@ with st.sidebar:
     )
 
     st.session_state.provider = provider_choice
+    if provider_choice == "Claude":
+        st.warning("Claude API usage may incur charges. Auto mode will not select Claude.")
 
     st.divider()
 
@@ -1969,6 +2010,86 @@ if st.session_state.last_provider:
     )
 
 st.divider()
+
+# ================================================================
+# CLIENT FINDER — REVENUE-FIRST WORKFLOW
+# ================================================================
+
+with st.expander("🎯 Client Finder — find potential design clients", expanded=True):
+    st.caption(
+        "Search public web results for small businesses that may need better "
+        "menus, promotional graphics or social media design. Search results "
+        "are leads to verify, not confirmed buying intent."
+    )
+    finder_col1, finder_col2 = st.columns(2)
+    with finder_col1:
+        finder_country = st.selectbox(
+            "Market",
+            ["Portugal", "United Kingdom"],
+            key="finder_country"
+        )
+        finder_city = st.text_input(
+            "City / area (optional)",
+            placeholder="e.g. Vila Nova de Milfontes or Sheffield",
+            key="finder_city"
+        )
+    with finder_col2:
+        finder_type = st.selectbox(
+            "Business type",
+            [
+                "cafes and independent restaurants",
+                "hair salons and barbers",
+                "gyms and fitness studios",
+                "clothing boutiques",
+                "small local businesses"
+            ],
+            key="finder_type"
+        )
+        st.caption("Prioritise independent businesses, not established chains.")
+
+    if st.button("Find potential clients", type="primary", use_container_width=True):
+        with st.spinner("Searching public business results..."):
+            try:
+                st.session_state["fahim_prospect_results"] = search_business_prospects(
+                    finder_country, finder_city, finder_type
+                )
+                st.session_state["fahim_prospect_search_label"] = (
+                    finder_type + " · " + finder_country
+                    + ((" · " + finder_city) if finder_city.strip() else "")
+                )
+            except Exception as error:
+                st.session_state["fahim_prospect_results"] = []
+                st.error("Prospect search failed: " + str(error))
+
+    prospects = st.session_state.get("fahim_prospect_results", [])
+    if prospects:
+        st.success(
+            f"Found {len(prospects)} public search results for "
+            + st.session_state.get("fahim_prospect_search_label", "your search")
+        )
+        for index, prospect in enumerate(prospects, 1):
+            st.markdown(f"**{index}. [{prospect['title']}]({prospect['url']})**")
+            if prospect["body"]:
+                st.write(prospect["body"])
+            st.caption("Lead status: unverified — check the business website/profile before contacting.")
+            with st.expander("Prepare a tailored pitch"):
+                st.write(
+                    "Use this public business page as the source. Identify one "
+                    "specific, visible design improvement before proposing a service. "
+                    "Do not assume they need a redesign or invent contact details."
+                )
+                st.code(
+                    "Review this prospect and prepare a concise, personalised "
+                    "outreach message for Fahim Graphic Design.\n\n"
+                    f"Business: {prospect['title']}\n"
+                    f"Public source: {prospect['url']}\n"
+                    f"Search evidence: {prospect['body']}\n\n"
+                    "Identify a specific design opportunity only if supported "
+                    "by the source. Offer one relevant service. Do not invent "
+                    "their email, phone number, problems, prices or facts."
+                )
+    else:
+        st.info("Run a search to see public business leads here. No prospect list is generated until you search.")
 
 
 # ================================================================
