@@ -175,7 +175,8 @@ def initialize_state():
         "image_search_enabled": False,
         "show_settings": False,
         "history_loaded": False,
-        "input_counter": 0
+        "input_counter": 0,
+        "last_latency": None
     }
 
     for key, value in defaults.items():
@@ -369,7 +370,12 @@ def extract_chat_text(data):
 # NARAROUTER MODEL DISCOVERY
 # ================================================================
 
-def discover_nara_models():
+def discover_nara_models(force=False):
+
+    # Reuse the authenticated model list between chat turns.
+    # The sidebar refresh button can explicitly bypass this cache.
+    if st.session_state.nara_models and not force:
+        return st.session_state.nara_models
 
     if not NARA_API_KEY:
         return []
@@ -1087,7 +1093,7 @@ def extract_text_from_files(uploaded_files):
 def search_web(query):
 
     if not DDGS_AVAILABLE:
-        return []
+        raise RuntimeError("The ddgs package is unavailable in this deployment.")
 
     try:
 
@@ -1112,8 +1118,8 @@ def search_web(query):
 
         return cleaned
 
-    except Exception:
-        return []
+    except Exception as error:
+        raise RuntimeError("DuckDuckGo search failed: " + str(error)) from error
 
 
 def format_web_results(results):
@@ -1228,11 +1234,13 @@ def prepare_messages(user_prompt, web_context=""):
 
 def run_text_providers(messages):
 
+    # Free-first routing: try NaraRouter, then Groq and OpenRouter;
+    # Claude remains the final fallback because its API may be paid.
     provider_order = [
-        ("Claude", generate_claude),
         ("NaraRouter", generate_nara),
         ("Groq", generate_groq),
-        ("OpenRouter", generate_openrouter)
+        ("OpenRouter", generate_openrouter),
+        ("Claude", generate_claude)
     ]
 
     selected = st.session_state.get("provider", "Auto")
@@ -1324,22 +1332,26 @@ def process_ai_request(
 
     web_context = ""
 
-    # Search happens before AI generation so the
-    # retrieved results can be included in the prompt.
-    if use_web:
+    # Explicit search requests trigger live search even when
+    # the sidebar toggle is off. The toggle still forces search.
+    search_terms = (
+        "search", "look up", "find online", "on the web",
+        "latest", "today", "current", "recent", "news",
+        "price today", "compare prices", "near me"
+    )
+    auto_search = any(term in prompt.lower() for term in search_terms)
+    should_search = use_web or auto_search
 
-        with st.spinner("Searching the web..."):
-
-            results = search_web(prompt)
-
-        web_context = format_web_results(results)
-
-        if not results:
-
-            st.info(
-                "Web search returned no results. "
-                "The AI will answer without live search."
-            )
+    # Retrieve evidence before asking the model to answer.
+    if should_search:
+        try:
+            with st.spinner("Searching the web..."):
+                results = search_web(prompt)
+            web_context = format_web_results(results)
+            if not results:
+                st.warning("Web search returned no results. The answer below is not based on live search.")
+        except Exception as error:
+            st.warning("Live web search failed: " + str(error) + ". The answer below is not based on live search.")
 
     extracted_text = extract_text_from_files(
         uploaded_files
@@ -1779,7 +1791,7 @@ with st.sidebar:
         with st.spinner("Checking available models..."):
 
             claude = discover_claude_models()
-            nara = discover_nara_models()
+            nara = discover_nara_models(force=True)
             groq = discover_groq_models()
             openrouter = discover_openrouter_models()
 
@@ -2058,13 +2070,16 @@ if user_prompt:
             try:
 
                 with st.spinner("FAHIM AI is thinking..."):
-
+                    request_started = time.perf_counter()
                     answer = process_ai_request(
                         prompt,
                         uploaded_files,
                         use_web=(
                             st.session_state.web_search_enabled
                         )
+                    )
+                    st.session_state.last_latency = round(
+                        time.perf_counter() - request_started, 2
                     )
 
                 answer_placeholder.markdown(answer)
@@ -2074,6 +2089,9 @@ if user_prompt:
                     + str(st.session_state.last_provider)
                     + " | Model: "
                     + str(st.session_state.last_model)
+                    + " | "
+                    + str(st.session_state.last_latency)
+                    + "s"
                 )
 
                 assistant_message = {
